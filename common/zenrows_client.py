@@ -11,9 +11,9 @@ import requests
 ZENROWS_API_KEY = os.environ.get("ZENROWS_API_KEY", "")
 ZENROWS_ENDPOINT = "https://api.zenrows.com/v1/"
 
-DEFAULT_TIMEOUT = 75
-MAX_RETRIES = 3
-RETRY_BACKOFF_SECONDS = 5
+DDEFAULT_TIMEOUT = 30
+MAX_RETRIES = 2
+RETRY_BACKOFF_SECONDS = 3
 
 
 def fetch_rendered_html(url: str, wait_for: str | None = None, wait_ms: int = 3000) -> str | None:

@@ -4,9 +4,9 @@ Daily price/availability/link check for 54 Fujifilm Instax items (cameras,
 printers, film) across **Extra.com (KSA)** and **Jarir.com (KSA)**, written
 back into a Google Sheet.
 
-- Sheet: column A holds the item codes (already populated, e.g. "INSTAX SQR
-  SQ1 ORG"). Columns B–H are written by the script: Extra Price /
-  Availability / Link, Jarir Price / Availability / Link, Last Checked.
+- Sheet layout: **A**=Last Checked, **B**=Item Description (your item codes,
+  e.g. "INSTAX SQR SQ1 ORG"), **C-E**=Extra (Price/Availability/Link),
+  **F-H**=Jarir (Price/Availability/Link). Header row is frozen.
 - Runs automatically every day at **10:00 AM UAE time** via GitHub Actions
   (`.github/workflows/daily-scrape.yml`), and can also be triggered manually
   from the Actions tab ("Run workflow").
@@ -72,7 +72,15 @@ and add:
 The service account's `client_email` must already have **Editor** access on
 the sheet (share the sheet with that email if you haven't).
 
-### 2. Test it
+### 2. Migrate the sheet layout (one-time, only if your sheet still has
+the old column order)
+From the repo's **Actions** tab, select "Migrate Sheet Layout" → **Run
+workflow**. It moves "Last Checked" to column A, shifts your item codes to
+column B, and freezes the header row. Safe to run more than once - it's a
+no-op if already migrated, and aborts without changes if it doesn't
+recognize the current layout.
+
+### 3. Test it
 From the repo's **Actions** tab, select "Daily Instax Price Check" →
 **Run workflow** to trigger it manually and confirm the sheet updates.
 

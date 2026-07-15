@@ -1,6 +1,11 @@
 """
-Reads item names from column A of the sheet and writes back price /
-availability / link / last-checked columns for Extra and Jarir.
+Reads item codes from column B of the sheet and writes back last-checked /
+price / availability / link columns for Extra and Jarir.
+
+Layout: A=Last Checked, B=Item Description, C-E=Extra (Price/Avail/Link),
+F-H=Jarir (Price/Avail/Link). If your sheet is still in the old layout
+(A=Item Description ... H=Last Checked), run migrate_sheet_layout.py once
+first (see README) - this module assumes the new layout.
 
 Auth: expects the full service-account JSON in the GOOGLE_SERVICE_ACCOUNT_JSON
 env var (GitHub Actions secret), OR a path to the JSON file in
@@ -22,10 +27,10 @@ SCOPES = [
 ]
 
 HEADER = [
+    "Last Checked",
     "Item Description",
     "Extra Price (SAR)", "Extra Availability", "Extra Link",
     "Jarir Price (SAR)", "Jarir Availability", "Jarir Link",
-    "Last Checked (UAE Time)",
 ]
 
 
@@ -48,15 +53,16 @@ def get_worksheet():
 
 def read_items() -> list:
     ws = get_worksheet()
-    col_a = ws.col_values(1)
+    col_b = ws.col_values(2)
     # Skip header row; drop blanks
-    return [v for v in col_a[1:] if v.strip()]
+    return [v for v in col_b[1:] if v.strip()]
 
 
 def ensure_header(ws):
     current = ws.row_values(1)
     if current != HEADER:
         ws.update("A1", [HEADER])
+    ws.freeze(rows=1)  # idempotent - harmless if already frozen
 
 
 def write_results(rows: list):
@@ -67,12 +73,12 @@ def write_results(rows: list):
         "extra": {"price", "availability", "link"},
         "jarir": {"price", "availability", "link"},
     }
-    Writes in the same row order as the item appears in column A.
+    Writes in the same row order as the item appears in column B.
     """
     ws = get_worksheet()
     ensure_header(ws)
 
-    existing_items = ws.col_values(1)[1:]
+    existing_items = ws.col_values(2)[1:]
     item_to_row = {name: idx + 2 for idx, name in enumerate(existing_items)}  # +2: header + 1-index
 
     now_uae = datetime.now(timezone.utc).astimezone(
@@ -91,9 +97,9 @@ def write_results(rows: list):
         values = [
             extra.get("price", ""), extra.get("availability", ""), extra.get("link", ""),
             jarir.get("price", ""), jarir.get("availability", ""), jarir.get("link", ""),
-            now_uae,
         ]
-        updates.append({"range": f"B{row_num}:H{row_num}", "values": [values]})
+        updates.append({"range": f"A{row_num}", "values": [[now_uae]]})
+        updates.append({"range": f"C{row_num}:H{row_num}", "values": [values]})
 
     if updates:
         ws.batch_update(updates)

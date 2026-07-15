@@ -1,0 +1,29 @@
+name: Migrate Sheet Layout
+
+on:
+  workflow_dispatch: {}   # manual trigger only - Actions tab -> Run workflow
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Migrate sheet layout
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: python migrate_sheet_layout.py

@@ -11,7 +11,7 @@ import requests
 ZENROWS_API_KEY = os.environ.get("ZENROWS_API_KEY", "")
 ZENROWS_ENDPOINT = "https://api.zenrows.com/v1/"
 
-DDEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT = 30
 MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 3
 

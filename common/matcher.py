@@ -12,7 +12,7 @@ STOPWORDS = {"fujifilm", "single", "pack", "twin", "the", "and", "instant"}
 # Confirmed against the full descriptions in the original sourcing file
 # (e.g. "ORG" <-> "Terracotta Orange", "BL" <-> "Blue", "BK" <-> "Black").
 ABBREVIATIONS = {
-    "sqr": "square", "sq": "square",
+    "sqr": "square",
     "org": "orange", "bl": "blue", "wht": "white", "bk": "black",
     "grn": "green", "pnk": "pink", "gry": "gray", "bg": "beige", "br": "brown",
     "frm": "frame", "hrt": "heart", "sktch": "sketch", "lavndr": "lavender",
@@ -36,6 +36,12 @@ def _split_alnum(text: str) -> list:
 
 def _normalize(text: str) -> str:
     """Tokenize and expand abbreviated codes to full words."""
+    # "SQ" standing alone means "Square" (the product line, as our sheet
+    # uses it in "INSTAX SQ LINK WHT"). "SQ" directly followed by a digit
+    # (SQ1, SQ6, SQ40) is a specific model code, not our line-name
+    # abbreviation - expanding it too would make an unrelated "SQ6"
+    # accessory falsely appear to share our "Square" line.
+    text = re.sub(r"\bsq(?!\d)\b", "square", text.lower())
     tokens = [ABBREVIATIONS.get(t, t) for t in _split_alnum(text)]
     return " ".join(tokens)
 
@@ -82,17 +88,26 @@ def clean_query(text: str) -> str:
     return " ".join(tokens)
 
 
-SPECIFIC_MODEL_WORDS = {"evo", "liplay", "pal", "cinema"}
+GENERIC_WORDS = {"instax", "fuji", "film", "camera", "printer", "plus"}
 
 
-def _specific_model_words(text: str) -> set:
-    """Sub-model identifiers that name a distinct product line (LiPlay,
-    Evo, Pal, Cinema) rather than a generic descriptor. Unlike common words
-    ('mini', 'wide') these are rare enough that requiring an exact match
-    stops e.g. 'Mini LiPlay Plus' from matching a plain 'Mini 12' just
-    because they share every other word."""
-    normalized = _normalize(text)
-    return {w for w in SPECIFIC_MODEL_WORDS if re.search(rf"\b{w}\b", normalized)}
+def _content_words(text: str) -> set:
+    """Every meaningful, non-generic word in the text (product line like
+    'mini'/'square', sub-model like 'evo'/'liplay', pattern name like
+    'rainbow'/'confetti') - excluding brand/category boilerplate, colors
+    (gated separately), and digits (gated separately).
+
+    Used as a hard gate: ALL of the query's content words must appear in
+    the candidate. This is what actually stops false matches within a
+    small catalog, where *something* will always have the highest fuzzy
+    score even if it's completely wrong - e.g. 'Square Link White' matching
+    an unrelated 'SQ6 Camera Frame Borders' accessory just because both
+    share the word 'white', or 'Mini Rainbow' matching 'Square Rainbow'
+    because 'rainbow' overlaps but the product line doesn't.
+    """
+    tokens = _tokens(text)
+    digit_like = {t for t in tokens if t.isdigit()}
+    return tokens - GENERIC_WORDS - COLOR_WORDS - digit_like
 
 
 COLOR_WORDS = {
@@ -161,7 +176,7 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
     """
     query_category = infer_category(query)
     query_digits = _digit_runs(query)
-    query_model_words = _specific_model_words(query)
+    query_content = _content_words(query)
     query_colors = _color_words(query)
 
     best = None
@@ -184,9 +199,9 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
             if query_digits.isdisjoint(cand_digits):
                 continue
 
-        if query_model_words:
-            cand_model_words = _specific_model_words(title)
-            if not query_model_words.issubset(cand_model_words):
+        if query_content:
+            cand_tokens = _tokens(title)
+            if not query_content.issubset(cand_tokens):
                 continue
 
         if query_colors:

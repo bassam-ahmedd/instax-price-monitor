@@ -1,60 +1,60 @@
 """
 Extra.com KSA scraper.
 
-Extra's storefront is a heavily JS-rendered SPA with bot protection
-(plain requests get redirected to /en-sa/error). We go through ZenRows
-with js_render + premium_proxy, then prefer JSON-LD structured data.
+Extra's storefront search is powered by Unbxd, a third-party search-as-a-
+service whose API key/site key are shipped in the page for the *browser*
+to call directly (ACC.config.unbxdSearchConfig). We call the same public
+endpoint ourselves - no JS rendering or bot-detection workarounds needed,
+and the response already contains price, stock, and the product URL.
 """
-from urllib.parse import quote_plus
+import requests
 
-from common.zenrows_client import fetch_rendered_html
-from common.extract import extract_products_from_jsonld, extract_meta_product, normalize_availability, clean_price
-from common.matcher import best_match
+from common.matcher import best_match, clean_query
 
-SEARCH_URL = "https://www.extra.com/en-sa/search?q={query}"
+UNBXD_API_KEY = "21705619e273429e5767eea44ccb1ad5"
+UNBXD_SITE_KEY = "ss-unbxd-auk-extra-saudi-en-prod11541714990488"
+UNBXD_URL = f"https://search.unbxd.io/{UNBXD_API_KEY}/{UNBXD_SITE_KEY}/search"
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+REQUEST_TIMEOUT = 20
 
 
 def search_product(item_name: str) -> dict:
     """
-    Search Extra for `item_name` and return the best-matching product as:
-    {price, availability, link} or {price: "", availability: "Not Found", link: ""}
+    Search Extra (via Unbxd) for `item_name` and return the best-matching
+    product as {price, availability, link}.
     """
     result = {"price": "", "availability": "Not Found", "link": ""}
 
-    query = quote_plus(item_name)
-    url = SEARCH_URL.format(query=query)
-
-    html = fetch_rendered_html(url, wait_ms=6000)
-    if not html:
+    params = {"q": clean_query(item_name), "rows": 30}
+    try:
+        resp = requests.get(UNBXD_URL, params=params, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        print(f"[extra] fetch error for '{item_name}': {exc}", flush=True)
         result["availability"] = "Fetch Error"
         return result
 
-    candidates = extract_products_from_jsonld(html)
-
-    if not candidates:
-        single = extract_meta_product(html, url)
-        if single:
-            candidates = [single]
-
-    if not candidates:
+    products = [p for p in data.get("response", {}).get("products", []) if p.get("type") == "PRODUCT"]
+    if not products:
         return result
 
-    match, score = best_match(item_name, candidates, key=lambda c: c.get("name") or "")
+    match, score = best_match(item_name, products, key=lambda p: p.get("title") or p.get("nameEn") or "")
     if not match:
         return result
 
-    result["price"] = clean_price(match.get("price"))
-    result["availability"] = normalize_availability(match.get("availability"))
-    result["link"] = match.get("url") or url
+    price = match.get("sellingPrice") or match.get("price")
+    result["price"] = f"{float(price):.2f}" if price is not None else ""
 
-    if not result["price"] and result["link"] and result["link"] != url:
-        product_html = fetch_rendered_html(result["link"], wait_ms=5000)
-        if product_html:
-            candidates2 = extract_products_from_jsonld(product_html) or []
-            single = candidates2[0] if candidates2 else extract_meta_product(product_html, result["link"])
-            if single:
-                result["price"] = clean_price(single.get("price")) or result["price"]
-                if single.get("availability"):
-                    result["availability"] = normalize_availability(single.get("availability"))
+    in_stock = match.get("inStockFlag")
+    if in_stock is None:
+        in_stock = match.get("available")
+    result["availability"] = "In Stock" if in_stock else "Out of Stock"
+
+    link = match.get("productUrl")
+    if not link and match.get("urlEn"):
+        link = "https://www.extra.com/en-sa" + match["urlEn"]
+    result["link"] = link or ""
 
     return result

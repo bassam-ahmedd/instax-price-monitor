@@ -1,64 +1,98 @@
 """
 Jarir Bookstore KSA scraper.
 
-Jarir runs Vue Storefront (Magento-based). Search results and product
-pages are client-rendered, so we fetch through ZenRows with js_render,
-then prefer JSON-LD structured data over CSS selectors (class names on
-Vue Storefront builds change frequently).
+Jarir's search-as-you-type is powered by Constructor.io, whose public
+autocomplete/search key ships in the page for the browser to call
+directly. We use that to find the right product's URL slug, then fetch
+the product page itself with a plain HTTP request - Jarir product pages
+are server-rendered and include full schema.org JSON-LD (price +
+availability), so no JS rendering is needed anywhere in this flow.
 """
-from urllib.parse import quote_plus
+import requests
 
-from common.zenrows_client import fetch_rendered_html
-from common.extract import extract_products_from_jsonld, extract_meta_product, normalize_availability, clean_price
-from common.matcher import best_match
+from common.extract import extract_products_from_jsonld, normalize_availability, clean_price
+from common.matcher import best_match, clean_query
 
-SEARCH_URL = "https://www.jarir.com/sa-en/catalogsearch/result/?q={query}"
+CONSTRUCTOR_KEY = "key_KcSYfmQTEwRpBnd9"
+CONSTRUCTOR_URL = "https://ac.cnstrc.com/search/{query}"
+BASE_URL = "https://www.jarir.com/sa-en/"
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+REQUEST_TIMEOUT = 20
+
+
+def _search_candidates(item_name: str) -> list:
+    url = CONSTRUCTOR_URL.format(query=requests.utils.quote(clean_query(item_name)))
+    params = {
+        "key": CONSTRUCTOR_KEY,
+        "c": "ciojs-client-2.51.0",
+        "i": "instax-price-monitor",
+        "s": "1",
+        "num_results_per_page": 30,
+    }
+    resp = requests.get(url, params=params, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("response", {}).get("results", [])
 
 
 def search_product(item_name: str) -> dict:
     """
-    Search Jarir for `item_name` and return the best-matching product as:
-    {price, availability, link} or {price: "", availability: "Not Found", link: ""}
+    Search Jarir (via Constructor.io) for `item_name`, then fetch the
+    matched product page for authoritative price/availability. Returns
+    {price, availability, link}.
     """
     result = {"price": "", "availability": "Not Found", "link": ""}
 
-    query = quote_plus(item_name)
-    url = SEARCH_URL.format(query=query)
-
-    html = fetch_rendered_html(url, wait_ms=5000)
-    if not html:
+    try:
+        candidates = _search_candidates(item_name)
+    except (requests.RequestException, ValueError) as exc:
+        print(f"[jarir] search error for '{item_name}': {exc}", flush=True)
         result["availability"] = "Fetch Error"
         return result
 
-    candidates = extract_products_from_jsonld(html)
-
-    if not candidates:
-        # Fallback: this single page might itself be a product page
-        # (Jarir sometimes redirects a very specific query straight to it).
-        single = extract_meta_product(html, url)
-        if single:
-            candidates = [single]
-
     if not candidates:
         return result
 
-    match, score = best_match(item_name, candidates, key=lambda c: c.get("name") or "")
+    def title_of(c):
+        meta = c.get("data", {}).get("metadata", {})
+        return meta.get("name") or c.get("value") or c.get("data", {}).get("description") or ""
+
+    match, score = best_match(item_name, candidates, key=title_of)
     if not match:
         return result
 
-    result["price"] = clean_price(match.get("price"))
-    result["availability"] = normalize_availability(match.get("availability"))
-    result["link"] = match.get("url") or url
+    slug = match.get("data", {}).get("url")
+    if not slug:
+        return result
+    product_url = BASE_URL + slug
 
-    # If we matched via ItemList but got no price, fetch the product page itself.
-    if not result["price"] and result["link"] and result["link"] != url:
-        product_html = fetch_rendered_html(result["link"], wait_ms=4000)
-        if product_html:
-            candidates2 = extract_products_from_jsonld(product_html) or []
-            single = candidates2[0] if candidates2 else extract_meta_product(product_html, result["link"])
-            if single:
-                result["price"] = clean_price(single.get("price")) or result["price"]
-                if single.get("availability"):
-                    result["availability"] = normalize_availability(single.get("availability"))
+    html = None
+    for attempt in range(2):
+        try:
+            resp = requests.get(product_url, headers=HEADERS, timeout=30)
+            resp.raise_for_status()
+            html = resp.text
+            break
+        except requests.RequestException as exc:
+            print(f"[jarir] product page fetch error for '{item_name}' (attempt {attempt + 1}): {exc}", flush=True)
 
+    if html is None:
+        # Fall back to the search API's own price if the page fetch fails
+        price = match.get("data", {}).get("price")
+        result["price"] = clean_price(price)
+        result["link"] = product_url
+        result["availability"] = "Unknown"
+        return result
+
+    jsonld_products = extract_products_from_jsonld(html)
+    if jsonld_products:
+        p = jsonld_products[0]
+        result["price"] = clean_price(p.get("price")) or clean_price(match.get("data", {}).get("price"))
+        result["availability"] = normalize_availability(p.get("availability"))
+    else:
+        result["price"] = clean_price(match.get("data", {}).get("price"))
+        result["availability"] = "Unknown"
+
+    result["link"] = product_url
     return result

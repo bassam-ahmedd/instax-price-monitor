@@ -4,8 +4,12 @@ Daily price-check run.
 For every item in column A of the Google Sheet, search Extra and Jarir,
 extract price / availability / link, and write the results back.
 
+Both sites are queried via their own public search APIs (Unbxd for Extra,
+Constructor.io for Jarir) plus a plain HTTP fetch of Jarir's server-
+rendered product pages - no JS rendering or third-party scraping service
+needed.
+
 Env vars required (see README):
-    ZENROWS_API_KEY
     GOOGLE_SERVICE_ACCOUNT_JSON   (or GOOGLE_SERVICE_ACCOUNT_FILE for local runs)
     SHEET_ID                      (defaults to the Instax sheet)
 """

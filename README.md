@@ -72,17 +72,11 @@ and add:
 The service account's `client_email` must already have **Editor** access on
 the sheet (share the sheet with that email if you haven't).
 
-### 2. Migrate the sheet layout (one-time, only if your sheet still has
-the old column order)
-From the repo's **Actions** tab, select "Migrate Sheet Layout" → **Run
-workflow**. It moves "Last Checked" to column A, shifts your item codes to
-column B, and freezes the header row. Safe to run more than once - it's a
-no-op if already migrated, and aborts without changes if it doesn't
-recognize the current layout.
-
-### 3. Test it
+### 2. Test it
 From the repo's **Actions** tab, select "Daily Instax Price Check" →
-**Run workflow** to trigger it manually and confirm the sheet updates.
+**Run workflow** to trigger it manually and confirm the sheet updates. The
+first run will automatically detect and fix any layout issues (see "Layout
+is self-healing" below) before checking prices.
 
 ## Running locally
 ```bash
@@ -93,6 +87,14 @@ python main.py
 ```
 
 ## Notes / known limitations
+- **Layout is self-healing.** Every run checks whether column B actually
+  contains the known item codes before doing anything else
+  (`sheets_writer.normalize_layout()`). If the sheet is in a broken or
+  mixed state - wrong column order, a previous run that only partially
+  wrote, stray rows - it rebuilds the sheet from the canonical item list
+  in `sheets_writer.py` (header + item codes in column B, everything else
+  blank) rather than trying to salvage possibly-misaligned data, since the
+  same run repopulates price/availability/link for every item anyway.
 - A "Not Found" result means the item genuinely isn't in that retailer's
   catalog under this brand search (verified by dumping and manually
   reviewing both complete catalogs) - not a matching failure. As of this

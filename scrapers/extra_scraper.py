@@ -12,7 +12,6 @@ from common.extract import extract_products_from_jsonld, extract_meta_product, n
 from common.matcher import best_match
 
 SEARCH_URL = "https://www.extra.com/en-sa/search?q={query}"
-SEARCH_WAIT_FOR = "[class*='product'], [data-testid*='product']"
 
 
 def search_product(item_name: str) -> dict:
@@ -25,7 +24,7 @@ def search_product(item_name: str) -> dict:
     query = quote_plus(item_name)
     url = SEARCH_URL.format(query=query)
 
-    html = fetch_rendered_html(url, wait_for=SEARCH_WAIT_FOR, wait_ms=5000)
+    html = fetch_rendered_html(url, wait_ms=6000)
     if not html:
         result["availability"] = "Fetch Error"
         return result
@@ -49,7 +48,7 @@ def search_product(item_name: str) -> dict:
     result["link"] = match.get("url") or url
 
     if not result["price"] and result["link"] and result["link"] != url:
-        product_html = fetch_rendered_html(result["link"], wait_for="[class*='price']", wait_ms=4000)
+        product_html = fetch_rendered_html(result["link"], wait_ms=5000)
         if product_html:
             candidates2 = extract_products_from_jsonld(product_html) or []
             single = candidates2[0] if candidates2 else extract_meta_product(product_html, result["link"])

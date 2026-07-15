@@ -15,7 +15,7 @@ import time
 from scrapers import jarir_scraper, extra_scraper
 from sheets_writer import read_items, write_results
 
-SLEEP_BETWEEN_ITEMS_SECONDS = 3  # be polite / avoid rate limits
+SLEEP_BETWEEN_ITEMS_SECONDS = 1  # be polite / avoid rate limits
 
 
 def run():

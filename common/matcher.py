@@ -19,7 +19,7 @@ ABBREVIATIONS = {
     "rnbw": "rainbow", "lemnd": "lemonade", "spr": "spray", "gltr": "glitter",
     "met": "metallic", "snst": "sunset", "contetti": "confetti",
     "brush": "brushed", "str": "star", "illm": "illumi",
-    "contact": "contact sheet",
+    "contact": "contact sheet", "macaron": "macron", "rose": "pink",
 }
 
 
@@ -55,6 +55,8 @@ def infer_category(text: str) -> str | None:
         return "camera"
     if re.search(r"\bfilm\b", t):
         return "film"
+    if re.search(r"\btp\s?link\b", t):
+        return None  # TP-Link brand name, not an Instax printer
     if re.search(r"\b(printer|link)\b", t):
         return "printer"
     return None
@@ -93,6 +95,21 @@ def _specific_model_words(text: str) -> set:
     return {w for w in SPECIFIC_MODEL_WORDS if re.search(rf"\b{w}\b", normalized)}
 
 
+COLOR_WORDS = {
+    "white", "black", "blue", "green", "pink", "purple", "orange",
+    "beige", "brown", "gray", "grey", "gold", "silver", "red", "yellow",
+}
+
+
+def _color_words(text: str) -> set:
+    """Explicit color names in the text. Gated like digits/model-words:
+    if the query names a color, the candidate must share it - otherwise a
+    'Sand Beige' item could match the only same-family product in stock
+    even when it's actually 'Misty White'."""
+    normalized = _normalize(text)
+    return {w for w in COLOR_WORDS if re.search(rf"\b{w}\b", normalized)}
+
+
 def _digit_runs(text: str) -> set:
     """All numeric runs in the text. Used to stop 'SQ1' from matching
     'SQ40' just because they share every other word."""
@@ -101,7 +118,13 @@ def _digit_runs(text: str) -> set:
 
 def similarity(a: str, b: str) -> float:
     """
-    Combined score: token-overlap (Jaccard) weighted with sequence ratio.
+    Combined score: how much of the QUERY's content is covered by the
+    candidate (not symmetric overlap - our queries are short abbreviations
+    while retailer titles are verbose marketing copy, e.g. "FUJIFILM INSTAX
+    Mini Evo Hybrid Instant Film Camera, 28mm lens, 3 inch Screen, Brown"
+    for a query of just "instax mini evo brown"; penalizing the candidate
+    for its extra words would unfairly sink an otherwise perfect match),
+    weighted with sequence ratio for structural sanity-checking.
     Returns 0..1, higher is better.
     """
     a_norm, b_norm = _normalize(a), _normalize(b)
@@ -109,31 +132,46 @@ def similarity(a: str, b: str) -> float:
 
     a_tok, b_tok = _tokens(a), _tokens(b)
     if not a_tok or not b_tok:
-        jaccard = 0.0
+        coverage = 0.0
     else:
-        jaccard = len(a_tok & b_tok) / len(a_tok | b_tok)
+        coverage = len(a_tok & b_tok) / len(a_tok)
 
-    return 0.5 * seq_ratio + 0.5 * jaccard
+    return 0.4 * seq_ratio + 0.6 * coverage
 
 
-def best_match(query: str, candidates: list, key=lambda c: c, threshold: float = 0.42):
+def _is_fuji_branded(text: str) -> bool:
+    """Every real target product is Fujifilm/Instax branded. Rejecting
+    anything else outright is a much more robust safety net than trying to
+    patch category inference for every possible brand collision (TP-Link
+    routers, Canon/Epson/Brother printers, Honor phones, etc. all contain
+    words like 'link' or 'printer' that would otherwise slip past the
+    category gate)."""
+    return bool(re.search(r"\b(fuji|fujifilm|instax)\b", _normalize(text)))
+
+
+def best_match(query: str, candidates: list, key=lambda c: c, threshold: float = 0.45):
     """
     candidates: list of items (or dicts) to score against `query`.
     key: function extracting the title string from a candidate.
     Returns (candidate, score) for the best candidate if its score >=
-    threshold, else (None, best_score_seen). Candidates whose inferred
-    category (camera/film/printer) or model-number digits conflict with
-    the query's are excluded outright, regardless of text score.
+    threshold, else (None, best_score_seen). Candidates that aren't
+    Fuji/Instax branded, or whose inferred category (camera/film/printer),
+    model-number digits, or specific model word conflict with the query's,
+    are excluded outright regardless of text score.
     """
     query_category = infer_category(query)
     query_digits = _digit_runs(query)
     query_model_words = _specific_model_words(query)
+    query_colors = _color_words(query)
 
     best = None
     best_score = 0.0
     for c in candidates:
         title = key(c)
         if not title:
+            continue
+
+        if not _is_fuji_branded(title):
             continue
 
         if query_category:
@@ -143,12 +181,17 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
 
         if query_digits:
             cand_digits = _digit_runs(title)
-            if cand_digits and query_digits.isdisjoint(cand_digits):
+            if query_digits.isdisjoint(cand_digits):
                 continue
 
         if query_model_words:
             cand_model_words = _specific_model_words(title)
-            if not (query_model_words & cand_model_words):
+            if not query_model_words.issubset(cand_model_words):
+                continue
+
+        if query_colors:
+            cand_colors = _color_words(title)
+            if query_colors.isdisjoint(cand_colors):
                 continue
 
         score = similarity(query, title)

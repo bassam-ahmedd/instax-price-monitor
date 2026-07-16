@@ -177,6 +177,12 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
     query_category = infer_category(query)
     query_digits = _digit_runs(query)
     query_content = _content_words(query)
+    if query_category == "printer":
+        # "Mini" is inconsistently applied to printer names across
+        # retailers/generations (AMT lists "INSTAX LINK 3" with no "Mini",
+        # even though our sheet code says "MINI LINK3") - don't require it
+        # here, unlike for cameras/film where it's a real line-disambiguator.
+        query_content = query_content - {"mini"}
     query_colors = _color_words(query)
 
     best = None

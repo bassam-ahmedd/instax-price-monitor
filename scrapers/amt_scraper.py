@@ -29,7 +29,7 @@ def _extract_from_html(html: str) -> list:
         link_tag = item.select_one("a.product-item-link")
         if not link_tag:
             continue
-        name = link_tag.get_text(strip=True)
+        name = " ".join(link_tag.get_text(" ", strip=True).split())
         link = link_tag.get("href")
 
         price_tag = item.select_one("[data-price-amount]")

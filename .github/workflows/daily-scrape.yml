@@ -9,7 +9,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
 
@@ -27,6 +27,7 @@ jobs:
 
       - name: Run price check
         env:
+          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
         run: python main.py

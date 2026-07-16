@@ -1,16 +1,20 @@
 """
-Reads item codes from column B and writes back last-checked / price /
-availability / link columns for Extra and Jarir.
+Reads item codes from column B and writes back last-checked / our price /
+competitor price+availability+link+comparison columns.
 
-Layout: A=Last Checked, B=Item Description, C-E=Extra (Price/Availability/
-Link), F-H=Jarir (Price/Availability/Link). Header row is frozen.
+Layout: A=Last Checked, B=Item Description, C-E=Our price/availability/link
+(AMT, ksa.amt.tv - "our" site), F-I=Extra (Price/Availability/Link/vs Us),
+J-M=Jarir (Price/Availability/Link/vs Us). Header row is frozen.
+
+"vs Us" columns say whether that competitor's price is Higher, Lower, or
+the Same as ours, or N/A if either price is missing.
 
 Self-healing: normalize_layout(), called at the start of every run, checks
 whether column B actually contains the known item codes. If it doesn't
 (wrong column order, a partial/interrupted previous write, stray rows),
 it rebuilds the sheet from the canonical item list below rather than
 trying to salvage possibly-misaligned data - the very next run repopulates
-price/availability/link for everything anyway, so there's nothing worth
+every price/availability/link column anyway, so there's nothing worth
 preserving in a row that's already in question.
 
 Auth: expects the full service-account JSON in the GOOGLE_SERVICE_ACCOUNT_JSON
@@ -35,9 +39,11 @@ SCOPES = [
 HEADER = [
     "Last Checked",
     "Item Description",
-    "Extra Price (SAR)", "Extra Availability", "Extra Link",
-    "Jarir Price (SAR)", "Jarir Availability", "Jarir Link",
+    "Our Price (SAR)", "Our Availability", "Our Link",
+    "Extra Price (SAR)", "Extra Availability", "Extra Link", "Extra vs Us",
+    "Jarir Price (SAR)", "Jarir Availability", "Jarir Link", "Jarir vs Us",
 ]
+NUM_COLUMNS = len(HEADER)
 
 # The 54 items from the original sourcing list, in their original order.
 # Used only as a rebuild source when the sheet's layout looks broken -
@@ -109,7 +115,7 @@ def normalize_layout(ws):
         f"expected place) - rebuilding from the canonical item list.",
         flush=True,
     )
-    rows = [HEADER] + [["", item, "", "", "", "", "", ""] for item in CANONICAL_ITEMS]
+    rows = [HEADER] + [["", item] + [""] * (NUM_COLUMNS - 2) for item in CANONICAL_ITEMS]
     ws.clear()
     ws.update("A1", rows)
     ws.freeze(rows=1)
@@ -122,11 +128,27 @@ def read_items() -> list:
     return [v for v in col_b[1:] if v.strip()]
 
 
+def _compare_to_us(their_price: str, our_price: str) -> str:
+    """Higher / Lower / Same, or N/A if either price is missing or
+    non-numeric (e.g. the item wasn't found on one side)."""
+    try:
+        their = float(their_price)
+        our = float(our_price)
+    except (TypeError, ValueError):
+        return "N/A"
+    if their > our:
+        return "Higher"
+    if their < our:
+        return "Lower"
+    return "Same"
+
+
 def write_results(rows: list):
     """
     rows: list of dicts, each:
     {
         "item": str,
+        "our": {"price", "availability", "link"},
         "extra": {"price", "availability", "link"},
         "jarir": {"price", "availability", "link"},
     }
@@ -149,14 +171,20 @@ def write_results(rows: list):
         if not row_num:
             continue  # item not found in sheet (shouldn't happen)
 
+        our = row["our"]
         extra = row["extra"]
         jarir = row["jarir"]
+
+        extra_vs_us = _compare_to_us(extra.get("price", ""), our.get("price", ""))
+        jarir_vs_us = _compare_to_us(jarir.get("price", ""), our.get("price", ""))
+
         values = [
-            extra.get("price", ""), extra.get("availability", ""), extra.get("link", ""),
-            jarir.get("price", ""), jarir.get("availability", ""), jarir.get("link", ""),
+            our.get("price", ""), our.get("availability", ""), our.get("link", ""),
+            extra.get("price", ""), extra.get("availability", ""), extra.get("link", ""), extra_vs_us,
+            jarir.get("price", ""), jarir.get("availability", ""), jarir.get("link", ""), jarir_vs_us,
         ]
         updates.append({"range": f"A{row_num}", "values": [[now_uae]]})
-        updates.append({"range": f"C{row_num}:H{row_num}", "values": [values]})
+        updates.append({"range": f"C{row_num}:M{row_num}", "values": [values]})
 
     if updates:
         ws.batch_update(updates)

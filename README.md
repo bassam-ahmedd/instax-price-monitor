@@ -1,19 +1,23 @@
 # Instax Price Monitor
 
 Daily price/availability/link check for 54 Fujifilm Instax items (cameras,
-printers, film) across **Extra.com (KSA)** and **Jarir.com (KSA)**, written
-back into a Google Sheet.
+printers, film) across **AMT (ksa.amt.tv, ours)**, **Extra.com (KSA)**, and
+**Jarir.com (KSA)**, written back into a Google Sheet - including whether
+each competitor is priced higher, lower, or the same as us.
 
 - Sheet layout: **A**=Last Checked, **B**=Item Description (your item codes,
-  e.g. "INSTAX SQR SQ1 ORG"), **C-E**=Extra (Price/Availability/Link),
-  **F-H**=Jarir (Price/Availability/Link). Header row is frozen.
+  e.g. "INSTAX SQR SQ1 ORG"), **C-E**=Our price/availability/link (AMT),
+  **F-I**=Extra (Price/Availability/Link/vs Us), **J-M**=Jarir
+  (Price/Availability/Link/vs Us). Header row is frozen.
+- "vs Us" is `Higher` / `Lower` / `Same` / `N/A` (if either price is
+  missing - e.g. the item isn't carried there).
 - Runs automatically every day at **10:00 AM UAE time** via GitHub Actions
   (`.github/workflows/daily-scrape.yml`), and can also be triggered manually
   from the Actions tab ("Run workflow").
 
 ## How it works
 
-Both retailers' storefronts are JS-heavy SPAs, but each exposes a public
+Extra and Jarir's storefronts are JS-heavy SPAs, but each exposes a public
 search API that their own frontend calls from the browser - so this project
 talks to those APIs directly instead of rendering pages with a headless
 browser or scraping service:
@@ -22,6 +26,12 @@ browser or scraping service:
 - **Jarir**: [Constructor.io](https://constructor.io) search (`scrapers/jarir_scraper.py`),
   then a plain HTTP fetch of each product's page - Jarir's product pages are
   server-rendered with full schema.org JSON-LD (price + `InStock`/`OutOfStock`).
+
+**AMT** (`scrapers/amt_scraper.py`) is different: it's our own Magento site,
+behind Cloudflare bot protection - a plain request gets an "Attention
+Required" block page - so it goes through [ZenRows](https://zenrows.com)
+with JS rendering instead (`common/zenrows_client.py`). This is the only
+site in this project that needs ZenRows.
 
 Rather than issuing a fresh search per sheet item (54 separate guesses at
 query phrasing per site), `main.py` fetches each retailer's **complete Fuji
@@ -66,6 +76,7 @@ and add:
 
 | Secret name | Value |
 |---|---|
+| `ZENROWS_API_KEY` | Your ZenRows API key (used only for AMT) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | The **full contents** of your service-account JSON key file (paste the whole JSON) |
 | `SHEET_ID` | `1x0ywQLO_QAp6sXesGGa44_99Bs2RtSjMLKiHgSIy_VA` |
 

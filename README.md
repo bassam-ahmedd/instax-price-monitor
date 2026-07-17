@@ -11,6 +11,10 @@ each competitor is priced higher, lower, or the same as us.
   (Price/Availability/Link/vs Us). Header row is frozen.
 - "vs Us" is `Higher` / `Lower` / `Same` / `N/A` (if either price is
   missing - e.g. the item isn't carried there).
+- The competitor's **Price** cell is highlighted red when their price is
+  lower than ours; their **Availability** cell is highlighted red when
+  they have stock and we don't. Both are recomputed and re-applied (or
+  cleared) every run, so a highlight never lingers once it's no longer true.
 - Runs automatically every day at **10:00 AM UAE time** via GitHub Actions
   (`.github/workflows/daily-scrape.yml`), and can also be triggered manually
   from the Actions tab ("Run workflow").

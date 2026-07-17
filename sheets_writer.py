@@ -7,7 +7,10 @@ Layout: A=Last Checked, B=Item Description, C-E=Our price/availability/link
 J-M=Jarir (Price/Availability/Link/vs Us). Header row is frozen.
 
 "vs Us" columns say whether that competitor's price is Higher, Lower, or
-the Same as ours, or N/A if either price is missing.
+the Same as ours, or N/A if either price is missing. The competitor's
+Price cell is highlighted red when their price is Lower than ours, and
+their Availability cell is highlighted red when they have stock and we
+don't - both recomputed and re-applied (or cleared) every run.
 
 Self-healing: normalize_layout(), called at the start of every run, checks
 whether column B actually contains the known item codes. If it doesn't
@@ -143,6 +146,14 @@ def _compare_to_us(their_price: str, our_price: str) -> str:
     return "Same"
 
 
+RED_HIGHLIGHT = {"backgroundColor": {"red": 0.957, "green": 0.706, "blue": 0.694}}
+NO_HIGHLIGHT = {"backgroundColor": {"red": 1, "green": 1, "blue": 1}}
+
+
+def _they_have_stock_we_dont(their_availability: str, our_availability: str) -> bool:
+    return their_availability == "In Stock" and our_availability != "In Stock"
+
+
 def write_results(rows: list):
     """
     rows: list of dicts, each:
@@ -165,6 +176,7 @@ def write_results(rows: list):
     ).strftime("%Y-%m-%d %H:%M UTC")  # GitHub runners are UTC; sheet notes it's UTC
 
     updates = []
+    formats = []
     for row in rows:
         item = row["item"]
         row_num = item_to_row.get(item)
@@ -186,5 +198,23 @@ def write_results(rows: list):
         updates.append({"range": f"A{row_num}", "values": [[now_uae]]})
         updates.append({"range": f"C{row_num}:M{row_num}", "values": [values]})
 
+        # Red highlight: competitor price is cheaper than ours, or they
+        # have stock we don't. Every cell gets an explicit format each run
+        # (highlighted or cleared) so a highlight never lingers once the
+        # condition it flagged is no longer true.
+        our_avail = our.get("availability", "")
+        formats.append({"range": f"F{row_num}", "format": RED_HIGHLIGHT if extra_vs_us == "Lower" else NO_HIGHLIGHT})
+        formats.append({"range": f"J{row_num}", "format": RED_HIGHLIGHT if jarir_vs_us == "Lower" else NO_HIGHLIGHT})
+        formats.append({
+            "range": f"G{row_num}",
+            "format": RED_HIGHLIGHT if _they_have_stock_we_dont(extra.get("availability", ""), our_avail) else NO_HIGHLIGHT,
+        })
+        formats.append({
+            "range": f"K{row_num}",
+            "format": RED_HIGHLIGHT if _they_have_stock_we_dont(jarir.get("availability", ""), our_avail) else NO_HIGHLIGHT,
+        })
+
     if updates:
         ws.batch_update(updates)
+    if formats:
+        ws.batch_format(formats)

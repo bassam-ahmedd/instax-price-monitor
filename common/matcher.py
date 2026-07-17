@@ -42,6 +42,10 @@ def _normalize(text: str) -> str:
     # abbreviation - expanding it too would make an unrelated "SQ6"
     # accessory falsely appear to share our "Square" line.
     text = re.sub(r"\bsq(?!\d)\b", "square", text.lower())
+    # Extra brands this exact film pattern "Photo Slide" while every other
+    # site (and our sheet) calls it "Lavender" - a phrase-level retailer
+    # naming quirk, not something abbreviation expansion alone can catch.
+    text = re.sub(r"\bphoto slide\b", "lavender", text)
     tokens = [ABBREVIATIONS.get(t, t) for t in _split_alnum(text)]
     return " ".join(tokens)
 
@@ -212,7 +216,9 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
 
         if query_colors:
             cand_colors = _color_words(title)
-            if query_colors.isdisjoint(cand_colors):
+            if query_colors == {"white"} and not cand_colors:
+                pass  # a colorless generic listing is Fuji's implicit plain/white default
+            elif query_colors.isdisjoint(cand_colors):
                 continue
 
         score = similarity(query, title)

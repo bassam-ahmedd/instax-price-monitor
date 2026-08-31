@@ -15,7 +15,7 @@ from common.zenrows_client import fetch_rendered_html
 from common.extract import extract_products_from_jsonld, normalize_availability, clean_price
 from common.matcher import best_match
 
-SEARCH_URL = "https://ksa.amt.tv/catalogsearch/result/index/?p={page}&q={query}"
+SEARCH_URL = "https://ksa.amt.tv/catalogsearch/result/index/?p={page}&q={query}&___store=default"
 MAX_PAGES = 4
 
 

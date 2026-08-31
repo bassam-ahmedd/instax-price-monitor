@@ -1,14 +1,16 @@
 # Instax Price Monitor
 
 Daily price/availability/link check for 54 Fujifilm Instax items (cameras,
-printers, film) across **AMT (ksa.amt.tv, ours)**, **Extra.com (KSA)**, and
-**Jarir.com (KSA)**, written back into a Google Sheet - including whether
-each competitor is priced higher, lower, or the same as us.
+printers, film) across **AMT (ksa.amt.tv, ours)**, **Extra.com (KSA)**,
+**Jarir.com (KSA)**, and **Qomra.pro (KSA)**, written back into a Google
+Sheet - including whether each competitor is priced higher, lower, or the
+same as us.
 
 - Sheet layout: **A**=Last Checked, **B**=Item Description (your item codes,
   e.g. "INSTAX SQR SQ1 ORG"), **C-E**=Our price/availability/link (AMT),
   **F-I**=Extra (Price/Availability/Link/vs Us), **J-M**=Jarir
-  (Price/Availability/Link/vs Us). Header row is frozen.
+  (Price/Availability/Link/vs Us), **N-Q**=Qomra (Price/Availability/Link/vs Us).
+  Header row is frozen.
 - "vs Us" is `Higher` / `Lower` / `Same` / `N/A` (if either price is
   missing - e.g. the item isn't carried there).
 - The competitor's **Price** cell is highlighted red when their price is
@@ -34,8 +36,19 @@ browser or scraping service:
 **AMT** (`scrapers/amt_scraper.py`) is different: it's our own Magento site,
 behind Cloudflare bot protection - a plain request gets an "Attention
 Required" block page - so it goes through [ZenRows](https://zenrows.com)
-with JS rendering instead (`common/zenrows_client.py`). This is the only
-site in this project that needs ZenRows.
+with JS rendering instead (`common/zenrows_client.py`). It also silently
+defaults to Arabic for some traffic, which breaks every English-keyword
+matching gate - the search URL forces `___store=default` (Magento's
+English store view) to guard against that.
+
+**Qomra** (`scrapers/qomra_scraper.py`) also needs ZenRows: it's built on
+Salla, and product listings only exist as JS-rendered web components -
+the plain HTML has no product data at all. After JS runs, Salla itself
+injects a clean schema.org `ItemList` for SEO, so the same generic
+JSON-LD extractor used for Jarir's product pages handles it. Qomra's real
+Instax catalog is small (~7 products, confirmed across several query
+phrasings) - its category pages are dominated by Lomography, an unrelated
+brand, so this searches `?q=instax` directly instead.
 
 Rather than issuing a fresh search per sheet item (54 separate guesses at
 query phrasing per site), `main.py` fetches each retailer's **complete Fuji
@@ -117,6 +130,14 @@ python main.py
   SQ-series, PAL, and printer items are correctly absent there.
 - The matching gates above are intentionally strict, trading coverage for
   accuracy - a wrong price/link in the sheet is worse than a blank one.
+  One subtlety: a plain "White" query is allowed to match a colorless
+  generic listing (many sites sell their default film with no color word
+  at all, e.g. "for Fuji Instax mini 7S"), but only via a whitelist of
+  known boilerplate/filler words (`GENERIC_FILLER_WORDS` in
+  `common/matcher.py`) - any other leftover word is assumed to be a real
+  pattern name and blocks the match. This replaced an earlier blacklist
+  approach that kept missing pattern names ("Brushed Metal", "Candy Pop")
+  one at a time.
 - Extra's API returns stock status as the **string** `"true"`/`"false"`,
   not a real boolean - `extra_scraper.py` parses it explicitly. A naive
   truthy check on that field would silently mark everything "In Stock".

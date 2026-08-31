@@ -93,6 +93,18 @@ def clean_query(text: str) -> str:
 
 
 GENERIC_WORDS = {"instax", "fuji", "film", "camera", "printer", "plus"}
+LINE_WORDS = {"mini", "wide", "square"}
+
+# Boilerplate that shows up in genuinely plain/unpatterned film listings
+# but carries no pattern-identifying meaning of its own (compatibility
+# references, pack-size/quantity descriptors). Deliberately a whitelist,
+# not a blacklist of pattern names - the sourcing sheet's pattern
+# vocabulary is large and every attempt to blacklist specific pattern
+# words ("Brushed Metal", "Candy Pop", ...) missed one. Whitelisting what's
+# definitely NOT a pattern is safer: anything left over after removing
+# this, GENERIC_WORDS, LINE_WORDS, colors, and digits is assumed to be a
+# real pattern name.
+GENERIC_FILLER_WORDS = {"for", "s", "x", "pics", "pcs", "x1", "frame", "packs", "photo", "piece", "pieces"}
 
 
 def _content_words(text: str) -> set:
@@ -216,8 +228,10 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
 
         if query_colors:
             cand_colors = _color_words(title)
-            if query_colors == {"white"} and not cand_colors:
-                pass  # a colorless generic listing is Fuji's implicit plain/white default
+            cand_tokens_for_color_check = _tokens(title)
+            leftover = cand_tokens_for_color_check - GENERIC_WORDS - LINE_WORDS - GENERIC_FILLER_WORDS - _digit_runs(title)
+            if query_colors == {"white"} and not cand_colors and not leftover:
+                pass  # nothing left over after removing boilerplate - a genuinely plain/white default listing
             elif query_colors.isdisjoint(cand_colors):
                 continue
 

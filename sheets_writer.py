@@ -3,8 +3,9 @@ Reads item codes from column B and writes back last-checked / our price /
 competitor price+availability+link+comparison columns.
 
 Layout: A=Last Checked, B=Item Description, C-E=Our price/availability/link
-(AMT, ksa.amt.tv - "our" site), F-I=Extra (Price/Availability/Link/vs Us),
-J-M=Jarir (Price/Availability/Link/vs Us). Header row is frozen.
+(AMT, ksa.amt.tv - "our" site), then one 4-column block per competitor
+(Price/Availability/Link/vs Us) in COMPETITORS order below: F-I=Extra,
+J-M=Jarir, N-Q=Qomra. Header row is frozen.
 
 "vs Us" columns say whether that competitor's price is Higher, Lower, or
 the Same as ours, or N/A if either price is missing. The competitor's
@@ -26,6 +27,7 @@ GOOGLE_SERVICE_ACCOUNT_FILE for local runs.
 """
 import json
 import os
+import string
 from datetime import datetime, timezone
 
 import gspread
@@ -39,14 +41,25 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
+# One entry per competitor, in the order their 4-column blocks appear
+# after the "Our" block (C-E). Each key here must match a key in the
+# results dict passed to write_results() (see main.py).
+COMPETITORS = ["extra", "jarir", "qomra"]
+COMPETITOR_LABELS = {"extra": "Extra", "jarir": "Jarir", "qomra": "Qomra"}
+
 HEADER = [
     "Last Checked",
     "Item Description",
     "Our Price (SAR)", "Our Availability", "Our Link",
-    "Extra Price (SAR)", "Extra Availability", "Extra Link", "Extra vs Us",
-    "Jarir Price (SAR)", "Jarir Availability", "Jarir Link", "Jarir vs Us",
 ]
+for _key in COMPETITORS:
+    _label = COMPETITOR_LABELS[_key]
+    HEADER += [f"{_label} Price (SAR)", f"{_label} Availability", f"{_label} Link", f"{_label} vs Us"]
 NUM_COLUMNS = len(HEADER)
+
+# A-Z column letters for the columns we actually use (fine as long as
+# NUM_COLUMNS stays under 26 - we're at 17).
+_COLUMN_LETTERS = list(string.ascii_uppercase[:NUM_COLUMNS])
 
 # The 54 items from the original sourcing list, in their original order.
 # Used only as a rebuild source when the sheet's layout looks broken -
@@ -162,6 +175,7 @@ def write_results(rows: list):
         "our": {"price", "availability", "link"},
         "extra": {"price", "availability", "link"},
         "jarir": {"price", "availability", "link"},
+        "qomra": {"price", "availability", "link"},
     }
     Writes in the same row order as the item appears in column B.
     """
@@ -184,35 +198,34 @@ def write_results(rows: list):
             continue  # item not found in sheet (shouldn't happen)
 
         our = row["our"]
-        extra = row["extra"]
-        jarir = row["jarir"]
-
-        extra_vs_us = _compare_to_us(extra.get("price", ""), our.get("price", ""))
-        jarir_vs_us = _compare_to_us(jarir.get("price", ""), our.get("price", ""))
-
-        values = [
-            our.get("price", ""), our.get("availability", ""), our.get("link", ""),
-            extra.get("price", ""), extra.get("availability", ""), extra.get("link", ""), extra_vs_us,
-            jarir.get("price", ""), jarir.get("availability", ""), jarir.get("link", ""), jarir_vs_us,
-        ]
-        updates.append({"range": f"A{row_num}", "values": [[now_uae]]})
-        updates.append({"range": f"C{row_num}:M{row_num}", "values": [values]})
-
-        # Red highlight: competitor price is cheaper than ours, or they
-        # have stock we don't. Every cell gets an explicit format each run
-        # (highlighted or cleared) so a highlight never lingers once the
-        # condition it flagged is no longer true.
+        our_price = our.get("price", "")
         our_avail = our.get("availability", "")
-        formats.append({"range": f"F{row_num}", "format": RED_HIGHLIGHT if extra_vs_us == "Lower" else NO_HIGHLIGHT})
-        formats.append({"range": f"J{row_num}", "format": RED_HIGHLIGHT if jarir_vs_us == "Lower" else NO_HIGHLIGHT})
-        formats.append({
-            "range": f"G{row_num}",
-            "format": RED_HIGHLIGHT if _they_have_stock_we_dont(extra.get("availability", ""), our_avail) else NO_HIGHLIGHT,
-        })
-        formats.append({
-            "range": f"K{row_num}",
-            "format": RED_HIGHLIGHT if _they_have_stock_we_dont(jarir.get("availability", ""), our_avail) else NO_HIGHLIGHT,
-        })
+
+        values = [our_price, our_avail, our.get("link", "")]
+        for key in COMPETITORS:
+            comp = row[key]
+            vs_us = _compare_to_us(comp.get("price", ""), our_price)
+            values += [comp.get("price", ""), comp.get("availability", ""), comp.get("link", ""), vs_us]
+
+            # Column letters for this competitor's block: price is the
+            # first column, availability the second.
+            block_start = 3 + COMPETITORS.index(key) * 4  # 0-indexed offset from column A
+            price_col = _COLUMN_LETTERS[block_start]
+            avail_col = _COLUMN_LETTERS[block_start + 1]
+
+            # Red highlight: competitor price is cheaper than ours, or they
+            # have stock we don't. Every cell gets an explicit format each
+            # run (highlighted or cleared) so a highlight never lingers
+            # once the condition it flagged is no longer true.
+            formats.append({"range": f"{price_col}{row_num}", "format": RED_HIGHLIGHT if vs_us == "Lower" else NO_HIGHLIGHT})
+            formats.append({
+                "range": f"{avail_col}{row_num}",
+                "format": RED_HIGHLIGHT if _they_have_stock_we_dont(comp.get("availability", ""), our_avail) else NO_HIGHLIGHT,
+            })
+
+        updates.append({"range": f"A{row_num}", "values": [[now_uae]]})
+        last_col = _COLUMN_LETTERS[-1]
+        updates.append({"range": f"C{row_num}:{last_col}{row_num}", "values": [values]})
 
     if updates:
         ws.batch_update(updates)

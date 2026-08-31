@@ -1,22 +1,30 @@
 """
 Daily price-check run.
 
-Fetches AMT's (ours), Extra's, and Jarir's complete Fuji Instax catalogs
-once each, then matches every item in column B of the Google Sheet against
-those fixed catalogs locally - rather than issuing a fresh search per item
-per site, which risks missing a product that exists but doesn't surface
-well under a guessed query phrasing. sheets_writer.write_results() also
-computes whether each competitor is priced higher/lower/same as us.
+Fetches AMT's (ours), Extra's, Jarir's, and Qomra's complete Fuji Instax
+catalogs once each, then matches every item in column B of the Google
+Sheet against those fixed catalogs locally - rather than issuing a fresh
+search per item per site, which risks missing a product that exists but
+doesn't surface well under a guessed query phrasing.
+sheets_writer.write_results() also computes whether each competitor is
+priced higher/lower/same as us, and highlights cells accordingly.
 
 Env vars required (see README):
-    ZENROWS_API_KEY               (AMT only - Extra/Jarir don't need it)
+    ZENROWS_API_KEY               (AMT and Qomra only - Extra/Jarir don't need it)
     GOOGLE_SERVICE_ACCOUNT_JSON   (or GOOGLE_SERVICE_ACCOUNT_FILE for local runs)
     SHEET_ID                      (defaults to the Instax sheet)
 """
 import sys
 
-from scrapers import amt_scraper, jarir_scraper, extra_scraper
-from sheets_writer import read_items, write_results
+from scrapers import amt_scraper, extra_scraper, jarir_scraper, qomra_scraper
+from sheets_writer import COMPETITORS, read_items, write_results
+
+# Maps sheets_writer.COMPETITORS keys to their scraper module.
+COMPETITOR_SCRAPERS = {
+    "extra": extra_scraper,
+    "jarir": jarir_scraper,
+    "qomra": qomra_scraper,
+}
 
 
 def _fetch(label: str, fetch_fn):
@@ -37,10 +45,12 @@ def run():
         return
 
     amt_catalog = _fetch("AMT (ours)", amt_scraper.fetch_catalog)
-    extra_catalog = _fetch("Extra", extra_scraper.fetch_catalog)
-    jarir_catalog = _fetch("Jarir (includes a page fetch per product)", jarir_scraper.fetch_catalog)
+    competitor_catalogs = {
+        key: _fetch(key.capitalize(), COMPETITOR_SCRAPERS[key].fetch_catalog)
+        for key in COMPETITORS
+    }
 
-    print(f"Matching {len(items)} items against all three catalogs...", flush=True)
+    print(f"Matching {len(items)} items against all catalogs...", flush=True)
     results = []
 
     for i, item in enumerate(items, start=1):
@@ -50,27 +60,20 @@ def run():
             print(f"  AMT match error for '{item}': {exc}", flush=True)
             our_result = {"price": "", "availability": "Error", "link": ""}
 
-        try:
-            extra_result = extra_scraper.match_item(item, extra_catalog)
-        except Exception as exc:
-            print(f"  Extra match error for '{item}': {exc}", flush=True)
-            extra_result = {"price": "", "availability": "Error", "link": ""}
+        row = {"item": item, "our": our_result}
+        summary = f"Us: {our_result['availability']} {our_result['price']}"
 
-        try:
-            jarir_result = jarir_scraper.match_item(item, jarir_catalog)
-        except Exception as exc:
-            print(f"  Jarir match error for '{item}': {exc}", flush=True)
-            jarir_result = {"price": "", "availability": "Error", "link": ""}
+        for key in COMPETITORS:
+            try:
+                result = COMPETITOR_SCRAPERS[key].match_item(item, competitor_catalogs[key])
+            except Exception as exc:
+                print(f"  {key.capitalize()} match error for '{item}': {exc}", flush=True)
+                result = {"price": "", "availability": "Error", "link": ""}
+            row[key] = result
+            summary += f" | {key.capitalize()}: {result['availability']} {result['price']}"
 
-        print(
-            f"[{i}/{len(items)}] {item} | "
-            f"Us: {our_result['availability']} {our_result['price']} | "
-            f"Extra: {extra_result['availability']} {extra_result['price']} | "
-            f"Jarir: {jarir_result['availability']} {jarir_result['price']}",
-            flush=True,
-        )
-
-        results.append({"item": item, "our": our_result, "extra": extra_result, "jarir": jarir_result})
+        print(f"[{i}/{len(items)}] {item} | {summary}", flush=True)
+        results.append(row)
 
     print("Writing results back to the sheet...", flush=True)
     write_results(results)

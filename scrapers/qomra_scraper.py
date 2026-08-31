@@ -31,7 +31,9 @@ def fetch_catalog() -> list:
     {title, price, availability, link}.
     """
     url = SEARCH_URL.format(query=quote_plus("instax"))
-    html = fetch_rendered_html(url)
+    # Salla's web-component hydration seems slower than AMT's Magento
+    # rendering - give it more wait time and a longer overall timeout.
+    html = fetch_rendered_html(url, wait_ms=8000, timeout=90)
     if not html:
         return []
 

@@ -1,11 +1,9 @@
 """
-Thin wrapper around the ZenRows API, used only for ksa.amt.tv.
-
-Extra and Jarir have public search APIs their own frontends call directly
-(see extra_scraper.py / jarir_scraper.py), so they don't need this. AMT's
-Magento storefront is behind Cloudflare bot protection - a plain request
-gets an "Attention Required" block page - so that one goes through ZenRows
-with JS rendering + a premium proxy.
+Thin wrapper around the ZenRows API, used for sites that need real JS
+rendering: ksa.amt.tv (Cloudflare-protected Magento) and qomra.pro (Salla
+web components with no server-rendered product data). Extra and Jarir have
+public search APIs their own frontends call directly (see extra_scraper.py
+/ jarir_scraper.py), so they don't need this.
 """
 import os
 import time
@@ -19,7 +17,7 @@ MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 4
 
 
-def fetch_rendered_html(url: str, wait_ms: int = 5000) -> str | None:
+def fetch_rendered_html(url: str, wait_ms: int = 5000, timeout: int = DEFAULT_TIMEOUT) -> str | None:
     """Fetch a URL through ZenRows with JS rendering enabled. Returns the
     rendered HTML, or None if all retries failed."""
     if not ZENROWS_API_KEY:
@@ -38,7 +36,7 @@ def fetch_rendered_html(url: str, wait_ms: int = 5000) -> str | None:
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            resp = requests.get(ZENROWS_ENDPOINT, params=params, timeout=DEFAULT_TIMEOUT)
+            resp = requests.get(ZENROWS_ENDPOINT, params=params, timeout=timeout)
             if resp.status_code == 200:
                 return resp.text
             last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"

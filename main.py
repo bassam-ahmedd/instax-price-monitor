@@ -7,15 +7,19 @@ Sheet against those fixed catalogs locally - rather than issuing a fresh
 search per item per site, which risks missing a product that exists but
 doesn't surface well under a guessed query phrasing.
 sheets_writer.write_results() also computes whether each competitor is
-priced higher/lower/same as us, and highlights cells accordingly.
+priced higher/lower/same as us, and highlights cells accordingly. After
+writing, notify.send_alert() posts any cheaper-than-us items to the n8n
+"Instax Daily Price Alert" workflow, which emails a summary if any exist.
 
 Env vars required (see README):
     ZENROWS_API_KEY               (AMT and Qomra only - Extra/Jarir don't need it)
     GOOGLE_SERVICE_ACCOUNT_JSON   (or GOOGLE_SERVICE_ACCOUNT_FILE for local runs)
     SHEET_ID                      (defaults to the Instax sheet)
+    N8N_WEBHOOK_URL                (optional - price alert is skipped if unset)
 """
 import sys
 
+import notify
 from scrapers import amt_scraper, extra_scraper, jarir_scraper, qomra_scraper
 from sheets_writer import COMPETITORS, read_items, write_results
 
@@ -77,6 +81,10 @@ def run():
 
     print("Writing results back to the sheet...", flush=True)
     write_results(results)
+
+    print("Sending price alert...", flush=True)
+    notify.send_alert(results)
+
     print("Done.", flush=True)
 
 

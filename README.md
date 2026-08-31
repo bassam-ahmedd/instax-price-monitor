@@ -9,7 +9,10 @@ same as us.
 - Sheet layout: **A**=Last Checked, **B**=Item Description (your item codes,
   e.g. "INSTAX SQR SQ1 ORG"), **C-E**=Our price/availability/link (AMT),
   **F-I**=Extra (Price/Availability/Link/vs Us), **J-M**=Jarir
-  (Price/Availability/Link/vs Us), **N-Q**=Qomra (Price/Availability/Link/vs Us).
+  (Price/Availability/Link/vs Us), **N-Q**=Qomra (Price/Availability/Link/vs Us),
+  **R-U**=Lowest Price/Website/Link/Diff - the cheapest of the three
+  competitors, and how it compares to our price (negative means a
+  competitor undercuts us, positive means we're already cheapest).
   Header row is frozen.
 - "vs Us" is `Higher` / `Lower` / `Same` / `N/A` (if either price is
   missing - e.g. the item isn't carried there).
@@ -93,9 +96,10 @@ and add:
 
 | Secret name | Value |
 |---|---|
-| `ZENROWS_API_KEY` | Your ZenRows API key (used only for AMT) |
+| `ZENROWS_API_KEY` | Your ZenRows API key (used for AMT and Qomra) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | The **full contents** of your service-account JSON key file (paste the whole JSON) |
 | `SHEET_ID` | `1x0ywQLO_QAp6sXesGGa44_99Bs2RtSjMLKiHgSIy_VA` |
+| `N8N_WEBHOOK_URL` | `https://sherifelshamy123.app.n8n.cloud/webhook/instax-price-alert` (optional - price alert email is skipped if unset) |
 
 The service account's `client_email` must already have **Editor** access on
 the sheet (share the sheet with that email if you haven't).
@@ -113,6 +117,32 @@ export GOOGLE_SERVICE_ACCOUNT_FILE=service-account.json   # path to the key file
 export SHEET_ID=1x0ywQLO_QAp6sXesGGa44_99Bs2RtSjMLKiHgSIy_VA
 python main.py
 ```
+
+## Daily price alert email
+
+After every run, `notify.py` looks at the results and POSTs any items where
+a competitor's price is lower than ours to an n8n workflow:
+[Instax Daily Price Alert](https://sherifelshamy123.app.n8n.cloud/workflow/vsVk3pdzIHCXxTvE).
+That workflow builds an HTML summary table and sends it by Gmail - but only
+if at least one item actually qualifies (an empty list is posted too, and
+the workflow silently does nothing with it).
+
+Since the daily scrape already runs at 10:00 AM UAE/Dubai time
+(`.github/workflows/daily-scrape.yml`), the alert email goes out a few
+minutes after that, once the scrape and sheet write finish.
+
+**One-time n8n setup** (not something this repo can do for you): open the
+[workflow](https://sherifelshamy123.app.n8n.cloud/workflow/vsVk3pdzIHCXxTvE)
+and fill in the **To** and **CC** fields on the "Send Price Alert Email"
+(Gmail) node - they're left as placeholders on purpose. Everything else
+(the webhook, the HTML table, the Gmail credential, the "only send if
+non-empty" check) is already built and was tested end-to-end - a live test
+POST correctly built the email table and reached the Gmail node, only
+stopping because the placeholder isn't a real address yet.
+
+If `N8N_WEBHOOK_URL` isn't set as a repo secret, this step is skipped
+entirely (logged, not an error) - the price check and sheet update still
+run normally.
 
 ## Notes / known limitations
 - **Layout is self-healing.** Every run checks whether column B actually

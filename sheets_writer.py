@@ -5,7 +5,10 @@ competitor price+availability+link+comparison columns.
 Layout: A=Last Checked, B=Item Description, C-E=Our price/availability/link
 (AMT, ksa.amt.tv - "our" site), then one 4-column block per competitor
 (Price/Availability/Link/vs Us) in COMPETITORS order below: F-I=Extra,
-J-M=Jarir, N-Q=Qomra. Header row is frozen.
+J-M=Jarir, N-Q=Qomra, then R-U=Lowest Price/Website/Link/Diff (the
+cheapest of the three competitors, and how it compares to our price -
+negative means a competitor undercuts us, positive means we're already
+cheapest). Header row is frozen.
 
 "vs Us" columns say whether that competitor's price is Higher, Lower, or
 the Same as ours, or N/A if either price is missing. The competitor's
@@ -55,6 +58,7 @@ HEADER = [
 for _key in COMPETITORS:
     _label = COMPETITOR_LABELS[_key]
     HEADER += [f"{_label} Price (SAR)", f"{_label} Availability", f"{_label} Link", f"{_label} vs Us"]
+HEADER += ["Lowest Price (SAR)", "Lowest Price Website", "Lowest Price Link", "Price Diff (Lowest - Ours)"]
 NUM_COLUMNS = len(HEADER)
 
 # A-Z column letters for the columns we actually use (fine as long as
@@ -167,6 +171,26 @@ def _they_have_stock_we_dont(their_availability: str, our_availability: str) -> 
     return their_availability == "In Stock" and our_availability != "In Stock"
 
 
+def _lowest_competitor(row: dict) -> tuple:
+    """Among the competitors with a valid numeric price, return
+    (price_str, website_label, link) for the cheapest one, or
+    ("", "", "") if none have a valid price."""
+    best_price = None
+    best_key = None
+    for key in COMPETITORS:
+        try:
+            price = float(row[key].get("price", ""))
+        except (TypeError, ValueError):
+            continue
+        if best_price is None or price < best_price:
+            best_price = price
+            best_key = key
+
+    if best_key is None:
+        return "", "", ""
+    return f"{best_price:.2f}", COMPETITOR_LABELS[best_key], row[best_key].get("link", "")
+
+
 def write_results(rows: list):
     """
     rows: list of dicts, each:
@@ -222,6 +246,13 @@ def write_results(rows: list):
                 "range": f"{avail_col}{row_num}",
                 "format": RED_HIGHLIGHT if _they_have_stock_we_dont(comp.get("availability", ""), our_avail) else NO_HIGHLIGHT,
             })
+
+        lowest_price, lowest_website, lowest_link = _lowest_competitor(row)
+        try:
+            price_diff = f"{float(lowest_price) - float(our_price):.2f}"
+        except (TypeError, ValueError):
+            price_diff = "N/A"
+        values += [lowest_price, lowest_website, lowest_link, price_diff]
 
         updates.append({"range": f"A{row_num}", "values": [[now_uae]]})
         last_col = _COLUMN_LETTERS[-1]

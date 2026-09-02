@@ -14,10 +14,11 @@ STOPWORDS = {"fujifilm", "single", "pack", "twin", "the", "and", "instant"}
 ABBREVIATIONS = {
     "sqr": "square",
     "org": "orange", "bl": "blue", "wht": "white", "bk": "black",
-    "grn": "green", "pnk": "pink", "gry": "gray", "bg": "beige", "br": "brown",
+    "grn": "green", "pnk": "pink", "gry": "gray", "grey": "gray",
+    "bg": "beige", "br": "brown",
     "frm": "frame", "hrt": "heart", "sktch": "sketch", "lavndr": "lavender",
     "rnbw": "rainbow", "lemnd": "lemonade", "spr": "spray", "gltr": "glitter",
-    "met": "metallic", "snst": "sunset", "contetti": "confetti",
+    "met": "metal", "snst": "sunset", "contetti": "confetti",
     "brush": "brushed", "str": "star", "illm": "illumi",
     "contact": "contact sheet", "macaron": "macron", "rose": "pink",
 }
@@ -63,12 +64,12 @@ def infer_category(text: str) -> str | None:
     t = _normalize(text)
     if re.search(r"\bcamera\b", t):
         return "camera"
+    if re.search(r"\btp\s?link\b", t):
+        pass  # TP-Link brand name, not an Instax printer - fall through
+    elif re.search(r"\b(printer|link)\b", t):
+        return "printer"
     if re.search(r"\bfilm\b", t):
         return "film"
-    if re.search(r"\btp\s?link\b", t):
-        return None  # TP-Link brand name, not an Instax printer
-    if re.search(r"\b(printer|link)\b", t):
-        return "printer"
     return None
 
 
@@ -147,6 +148,27 @@ def _digit_runs(text: str) -> set:
     return set(re.findall(r"\d+", _normalize(text)))
 
 
+def _pack_size(text: str) -> str | None:
+    """'single' or 'twin' if determinable, else None. 'single'/'twin' are
+    in STOPWORDS (dropped from general matching as noise words for search
+    queries), which meant pack size was never actually checked - a
+    'Single Film' query could match a 'Twin Pack' listing or vice versa.
+    Retailers don't always say the word outright ('2 Packs' means twin;
+    a bare '10PCS' with no other signal means the standard single pack),
+    so this checks a few concrete patterns rather than just the words."""
+    t = _normalize(text)
+    if re.search(r"\btwin\b", t) or re.search(r"\b2\s+packs?\b", t):
+        return "twin"
+    if (
+        re.search(r"\bsingle\b", t)
+        or re.search(r"\b10\s*pcs?\b", t)
+        or re.search(r"\bx\s*10\b", t)
+        or re.search(r"\b10\s*x\s*1\b", t)
+    ):
+        return "single"
+    return None
+
+
 def similarity(a: str, b: str) -> float:
     """
     Combined score: how much of the QUERY's content is covered by the
@@ -200,6 +222,7 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
         # here, unlike for cameras/film where it's a real line-disambiguator.
         query_content = query_content - {"mini"}
     query_colors = _color_words(query)
+    query_pack = _pack_size(query)
 
     best = None
     best_score = 0.0
@@ -223,7 +246,20 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
 
         if query_content:
             cand_tokens = _tokens(title)
-            if not query_content.issubset(cand_tokens):
+            effective_query_content = query_content
+            cand_digits_for_content = _digit_runs(title)
+            if "square" in effective_query_content and query_digits and not query_digits.isdisjoint(cand_digits_for_content):
+                # A confirmed matching model number (e.g. both say "1" as
+                # in SQ1) already implies the Square line, even when the
+                # retailer's title just says "SQ1" without spelling out
+                # "Square" (common on Jarir).
+                effective_query_content = effective_query_content - {"square"}
+            if not effective_query_content.issubset(cand_tokens):
+                continue
+
+        if query_pack:
+            cand_pack = _pack_size(title)
+            if cand_pack and cand_pack != query_pack:
                 continue
 
         if query_colors:

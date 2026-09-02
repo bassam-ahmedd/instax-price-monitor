@@ -30,6 +30,28 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 REQUEST_TIMEOUT = 20
 PRODUCT_PAGE_TIMEOUT = 30
 
+# Item codes whose real Jarir product can't be reliably found by text
+# matching - verified correct product IDs (from the product page URL).
+URL_OVERRIDES = {
+    # Listed as "Fuji Instax mini LiPlay Bluetooth Instant Film Camera
+    # Brown" - Jarir calls this colorway "Brown", not "Beige"/"Sand
+    # Beige" like the sheet code and other retailers do.
+    "INSTAX MINI LIPLAY PLUS BG": "687533",
+    # Listed as "Fuji Instax mini Evo Bluetooth Instant Film Camera
+    # 4.9 MP Black" - never says "Cinema" anywhere in the title.
+    "INSTAX MINI EVO CINEMA": "687535",
+    # Jarir sells two Mini film SKUs under the IDENTICAL title "Fuji
+    # Instax mini Film, for Fuji Instax mini 7S" - only the price/URL
+    # distinguish single (39 SAR) from twin (75 SAR); no text signal
+    # exists to tell them apart.
+    "Mini White-Twin Film": "426109",
+    "Mini White-Single Film": "426110",
+    # Same situation for Wide film: identical titles, price is the only
+    # difference (single 45 SAR vs twin 85 SAR).
+    "Wide White-Twin Film": "426111",
+    "Wide White-Single Film": "426113",
+}
+
 
 def fetch_catalog() -> list:
     """
@@ -91,6 +113,14 @@ def match_item(item_name: str, catalog: list) -> dict:
     if not catalog:
         result["availability"] = "Fetch Error"
         return result
+
+    override_id = URL_OVERRIDES.get(item_name)
+    if override_id:
+        for p in catalog:
+            if override_id in p.get("link", ""):
+                return {"price": p["price"], "availability": p["availability"], "link": p["link"]}
+        # Override ID not found in this fetch (product removed/renamed) -
+        # fall through to normal fuzzy matching as a backup.
 
     match, score = best_match(item_name, catalog, key=lambda c: c["title"])
     if not match:

@@ -6,9 +6,10 @@ Layout: A=Last Checked, B=Item Description, C-E=Our price/availability/link
 (AMT, ksa.amt.tv - "our" site), then one 4-column block per competitor
 (Price/Availability/Link/vs Us) in COMPETITORS order below: F-I=Extra,
 J-M=Jarir, N-Q=Qomra, then R-U=Lowest Price/Website/Link/Diff (the
-cheapest of the three competitors, and how it compares to our price -
-negative means a competitor undercuts us, positive means we're already
-cheapest). Header row is frozen.
+cheapest across all four sources including us - "Website" says "Us" when
+our own price wins - and how it compares to our price: negative means a
+competitor undercuts us, positive is impossible since 0 is the floor when
+we're the cheapest ourselves). Header row is frozen.
 
 "vs Us" columns say whether that competitor's price is Higher, Lower, or
 the Same as ours, or N/A if either price is missing. The competitor's
@@ -171,15 +172,20 @@ def _they_have_stock_we_dont(their_availability: str, our_availability: str) -> 
     return their_availability == "In Stock" and our_availability != "In Stock"
 
 
-def _lowest_competitor(row: dict) -> tuple:
-    """Among the competitors with a valid numeric price, return
-    (price_str, website_label, link) for the cheapest one, or
-    ("", "", "") if none have a valid price."""
+def _lowest_overall(row: dict) -> tuple:
+    """Among OUR price and every competitor's price (whichever are valid
+    numbers), return (price_str, website_label, link) for the cheapest,
+    or ("", "", "") if nothing has a valid price. Previously this only
+    compared competitors, so it could show a competitor as "lowest" even
+    when our own price was actually lower - now "Us" wins fairly."""
+    candidates = {"our": row["our"]}
+    candidates.update({key: row[key] for key in COMPETITORS})
+
     best_price = None
     best_key = None
-    for key in COMPETITORS:
+    for key, data in candidates.items():
         try:
-            price = float(row[key].get("price", ""))
+            price = float(data.get("price", ""))
         except (TypeError, ValueError):
             continue
         if best_price is None or price < best_price:
@@ -188,7 +194,8 @@ def _lowest_competitor(row: dict) -> tuple:
 
     if best_key is None:
         return "", "", ""
-    return f"{best_price:.2f}", COMPETITOR_LABELS[best_key], row[best_key].get("link", "")
+    label = "Us" if best_key == "our" else COMPETITOR_LABELS[best_key]
+    return f"{best_price:.2f}", label, candidates[best_key].get("link", "")
 
 
 def write_results(rows: list):
@@ -247,7 +254,7 @@ def write_results(rows: list):
                 "format": RED_HIGHLIGHT if _they_have_stock_we_dont(comp.get("availability", ""), our_avail) else NO_HIGHLIGHT,
             })
 
-        lowest_price, lowest_website, lowest_link = _lowest_competitor(row)
+        lowest_price, lowest_website, lowest_link = _lowest_overall(row)
         try:
             price_diff = f"{float(lowest_price) - float(our_price):.2f}"
         except (TypeError, ValueError):

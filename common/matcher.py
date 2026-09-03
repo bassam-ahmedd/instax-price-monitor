@@ -93,7 +93,7 @@ def clean_query(text: str) -> str:
     return " ".join(tokens)
 
 
-GENERIC_WORDS = {"instax", "fuji", "film", "camera", "printer", "plus"}
+GENERIC_WORDS = {"instax", "fuji", "film", "camera", "printer"}
 LINE_WORDS = {"mini", "wide", "square"}
 
 # Boilerplate that shows up in genuinely plain/unpatterned film listings

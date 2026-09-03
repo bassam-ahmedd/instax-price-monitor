@@ -23,12 +23,17 @@ def build_cheaper_items(results: list) -> list:
     """
     From main.py's results list (each row has 'item', 'our', and one key
     per competitor), return a list of dicts for every competitor price
-    that's strictly lower than ours:
-    {item, site, price, our_price, diff, link}
+    that's strictly lower than ours - skipping items that aren't
+    currently in stock on our own site, since a price comparison isn't
+    actionable for something we can't sell anyway:
+    {item, site, price, our_price, our_link, diff, link}
     """
     items = []
     for row in results:
         our = row["our"]
+        if our.get("availability") != "In Stock":
+            continue
+
         try:
             our_price = float(our.get("price", ""))
         except (TypeError, ValueError):
@@ -46,6 +51,7 @@ def build_cheaper_items(results: list) -> list:
                     "site": COMPETITOR_LABELS[key],
                     "price": f"{their_price:.2f}",
                     "our_price": f"{our_price:.2f}",
+                    "our_link": our.get("link", ""),
                     "diff": f"{their_price - our_price:.2f}",
                     "link": comp.get("link", ""),
                 })

@@ -31,9 +31,10 @@ def fetch_catalog() -> list:
     {title, price, availability, link}.
     """
     url = SEARCH_URL.format(query=quote_plus("instax"))
-    # Salla's web-component hydration seems slower than AMT's Magento
-    # rendering - give it more wait time and a longer overall timeout.
-    html = fetch_rendered_html(url, wait_ms=8000, timeout=90)
+    # Salla's web-component hydration time is inconsistent - a 90s budget
+    # wasn't always enough. fetch_rendered_html already retries internally
+    # (see common/zenrows_client.py), so just give each attempt more room.
+    html = fetch_rendered_html(url, wait_ms=8000, timeout=150)
     if not html:
         return []
 

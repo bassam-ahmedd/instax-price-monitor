@@ -33,10 +33,6 @@ PRODUCT_PAGE_TIMEOUT = 30
 # Item codes whose real Jarir product can't be reliably found by text
 # matching - verified correct product IDs (from the product page URL).
 URL_OVERRIDES = {
-    # Listed as "Fuji Instax mini LiPlay Bluetooth Instant Film Camera
-    # Brown" - Jarir calls this colorway "Brown", not "Beige"/"Sand
-    # Beige" like the sheet code and other retailers do.
-    "INSTAX MINI LIPLAY PLUS BG": "687533",
     # Listed as "Fuji Instax mini Evo Bluetooth Instant Film Camera
     # 4.9 MP Black" - never says "Cinema" anywhere in the title.
     "INSTAX MINI EVO CINEMA": "687535",

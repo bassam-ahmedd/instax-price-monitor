@@ -33,10 +33,6 @@ URL_OVERRIDES = {
     # with camera specs and never "400", despite being the actual
     # Wide400 camera at the matching 669 SAR price.
     "Instax Wide400 Green": "100474377",
-    # Title is "FUJIFILM Instant Camera Capture and print, Film size
-    # 86 mm x 54 mm, 1/8000 shutter, ISO 1600, Beige" - never says
-    # "Mini" or "LiPlay" at all, so no text match is possible.
-    "INSTAX MINI LIPLAY PLUS BG": "100474153",
     # User-confirmed: listed as an SQ6-camera "White Frame Borders"
     # accessory rather than as film in its own right.
     "SQR WHITE-SINGLE FILM": "100037469",

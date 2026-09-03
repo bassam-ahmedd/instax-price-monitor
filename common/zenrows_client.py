@@ -13,7 +13,7 @@ ZENROWS_API_KEY = os.environ.get("ZENROWS_API_KEY", "")
 ZENROWS_ENDPOINT = "https://api.zenrows.com/v1/"
 
 DEFAULT_TIMEOUT = 60
-MAX_RETRIES = 2
+MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 4
 
 

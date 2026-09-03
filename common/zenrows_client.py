@@ -17,7 +17,9 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 4
 
 
-def fetch_rendered_html(url: str, wait_ms: int = 5000, timeout: int = DEFAULT_TIMEOUT) -> str | None:
+def fetch_rendered_html(
+    url: str, wait_ms: int = 5000, timeout: int = DEFAULT_TIMEOUT, max_retries: int = MAX_RETRIES
+) -> str | None:
     """Fetch a URL through ZenRows with JS rendering enabled. Returns the
     rendered HTML, or None if all retries failed."""
     if not ZENROWS_API_KEY:
@@ -34,7 +36,7 @@ def fetch_rendered_html(url: str, wait_ms: int = 5000, timeout: int = DEFAULT_TI
     }
 
     last_error = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, max_retries + 1):
         try:
             resp = requests.get(ZENROWS_ENDPOINT, params=params, timeout=timeout)
             if resp.status_code == 200:
@@ -43,7 +45,7 @@ def fetch_rendered_html(url: str, wait_ms: int = 5000, timeout: int = DEFAULT_TI
         except requests.RequestException as exc:
             last_error = str(exc)
 
-        if attempt < MAX_RETRIES:
+        if attempt < max_retries:
             time.sleep(RETRY_BACKOFF_SECONDS * attempt)
 
     print(f"[zenrows] giving up on {url} -> {last_error}", flush=True)

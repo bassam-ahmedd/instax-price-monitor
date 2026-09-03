@@ -31,10 +31,12 @@ def fetch_catalog() -> list:
     {title, price, availability, link}.
     """
     url = SEARCH_URL.format(query=quote_plus("instax"))
-    # Salla's web-component hydration time is inconsistent - a 90s budget
-    # wasn't always enough. fetch_rendered_html already retries internally
-    # (see common/zenrows_client.py), so just give each attempt more room.
-    html = fetch_rendered_html(url, wait_ms=8000, timeout=150)
+    # Salla's web-component hydration time is highly inconsistent - a
+    # single attempt has been observed taking anywhere from ~45s to over
+    # 100s. Use a generous per-attempt timeout with only 2 retries rather
+    # than the default 3, since more short-timeout attempts don't help
+    # when the bottleneck is per-attempt latency, not attempt count.
+    html = fetch_rendered_html(url, wait_ms=8000, timeout=200, max_retries=2)
     if not html:
         return []
 

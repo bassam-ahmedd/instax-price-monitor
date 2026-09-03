@@ -22,16 +22,16 @@ REQUEST_TIMEOUT = 20
 def build_cheaper_items(results: list) -> list:
     """
     From main.py's results list (each row has 'item', 'our', and one key
-    per competitor), return a list of dicts for every distinct price
-    that's strictly lower than ours - skipping items that aren't
-    currently in stock on our own site, since a price comparison isn't
-    actionable for something we can't sell anyway:
+    per competitor), return one row per item for its single lowest
+    competitor price - only when that price is lower than ours, and only
+    when our own item is currently in stock (a price comparison isn't
+    actionable for something we can't sell anyway):
     {item, site, price, our_price, our_link, diff, link}
 
-    When two or more competitors tie at the same lower price for the
-    same item, they're merged into a single row (site becomes e.g.
-    "Extra, Jarir") rather than appearing as duplicate lines - only a
-    genuine price difference between competitors gets its own row.
+    If two or more competitors tie at that lowest price, they're merged
+    into one row (site becomes e.g. "Extra, Jarir"). A competitor with a
+    higher (but still cheaper-than-us) price isn't shown at all - only
+    the single best deal per item matters here.
     """
     items = []
     for row in results:
@@ -61,21 +61,18 @@ def build_cheaper_items(results: list) -> list:
         if not cheaper:
             continue
 
-        groups = {}
-        for c in cheaper:
-            groups.setdefault(round(c["price"], 2), []).append(c)
+        lowest_price = min(c["price"] for c in cheaper)
+        tied = [c for c in cheaper if round(c["price"], 2) == round(lowest_price, 2)]
 
-        for price in sorted(groups):
-            group = groups[price]
-            items.append({
-                "item": row["item"],
-                "site": ", ".join(g["site"] for g in group),
-                "price": f"{price:.2f}",
-                "our_price": f"{our_price:.2f}",
-                "our_link": our.get("link", ""),
-                "diff": f"{price - our_price:.2f}",
-                "link": group[0]["link"],  # tied sites share a price; show the first one's link
-            })
+        items.append({
+            "item": row["item"],
+            "site": ", ".join(c["site"] for c in tied),
+            "price": f"{lowest_price:.2f}",
+            "our_price": f"{our_price:.2f}",
+            "our_link": our.get("link", ""),
+            "diff": f"{lowest_price - our_price:.2f}",
+            "link": tied[0]["link"],  # tied sites share a price; show the first one's link
+        })
     return items
 
 

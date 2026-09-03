@@ -49,7 +49,17 @@ def fetch_catalog() -> list:
 
 
 def _build_result(product: dict) -> dict:
-    price = product.get("sellingPrice") or product.get("price")
+    # 'sellingPrice' is normally the correct (possibly discounted) price.
+    # But when a product has been discontinued as Extra's own listing and
+    # reborn as a marketplace listing at a new price, the old discount
+    # field goes stale - e.g. a real product was found live at 732.49 SAR
+    # while its sellingPrice field still said 210 (an old clearance price
+    # that no longer applies). 'price' reflects the current price in that
+    # case. Confirmed via the isDiscontinued flag Extra's own data sets.
+    if str(product.get("isDiscontinued", "")).lower() == "true":
+        price = product.get("price") or product.get("sellingPrice")
+    else:
+        price = product.get("sellingPrice") or product.get("price")
     price_str = f"{float(price):.2f}" if price is not None else ""
 
     in_stock = product.get("inStockFlag")

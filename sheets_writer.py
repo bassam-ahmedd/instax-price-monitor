@@ -31,11 +31,15 @@ GOOGLE_SERVICE_ACCOUNT_FILE for local runs.
 """
 import json
 import os
+import random
 import string
+import time
 from datetime import datetime, timezone
 
 import gspread
+import requests.exceptions
 from google.oauth2.service_account import Credentials
+from gspread.exceptions import APIError
 
 SHEET_ID = os.environ.get("SHEET_ID", "1x0ywQLO_QAp6sXesGGa44_99Bs2RtSjMLKiHgSIy_VA")
 SHEET_TAB = os.environ.get("SHEET_TAB", "Sheet1")
@@ -96,6 +100,66 @@ CANONICAL_ITEMS = [
 MIN_HEALTHY_MATCHES = 15
 
 
+# --- Transient-failure handling -------------------------------------------
+# The Sheets API intermittently answers with 503 ("The service is currently
+# unavailable") and friends. Google's own guidance is to retry these with
+# exponential backoff rather than treat them as failures. Without this, a
+# single unlucky 503 on the very first call killed the whole daily run.
+RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS = int(os.environ.get("SHEETS_MAX_ATTEMPTS", "6"))
+BASE_DELAY_SECONDS = 2.0
+MAX_DELAY_SECONDS = 60.0
+
+# Cells per batch_update / batch_format request. Google lists high request
+# complexity as a 503 trigger, so the per-run write is split rather than
+# sent as one ~320-range call.
+BATCH_CHUNK_SIZE = int(os.environ.get("SHEETS_BATCH_CHUNK_SIZE", "50"))
+
+
+def _status_code(exc: APIError):
+    """Best-effort HTTP status out of a gspread APIError."""
+    response = getattr(exc, "response", None)
+    code = getattr(response, "status_code", None)
+    if code:
+        return code
+    try:
+        return response.json()["error"]["code"]
+    except Exception:
+        return None
+
+
+def _call(label: str, fn, *args, **kwargs):
+    """Run a Sheets API call, retrying transient errors with backoff."""
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return fn(*args, **kwargs)
+        except APIError as exc:
+            status = _status_code(exc)
+            if status not in RETRYABLE_STATUSES or attempt == MAX_ATTEMPTS:
+                raise
+            reason = f"HTTP {status}"
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError) as exc:
+            if attempt == MAX_ATTEMPTS:
+                raise
+            reason = type(exc).__name__
+
+        delay = min(BASE_DELAY_SECONDS * (2 ** (attempt - 1)), MAX_DELAY_SECONDS)
+        delay += random.uniform(0, 1)  # jitter, so retries don't sync up
+        print(
+            f"[sheets_writer] {label} failed ({reason}), attempt {attempt}/{MAX_ATTEMPTS} "
+            f"- retrying in {delay:.1f}s",
+            flush=True,
+        )
+        time.sleep(delay)
+
+
+def _chunked(seq, size):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
 def _get_client() -> gspread.Client:
     raw_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if raw_json:
@@ -107,10 +171,21 @@ def _get_client() -> gspread.Client:
     return gspread.authorize(creds)
 
 
+# Opened once per process: auth + open_by_key + worksheet were previously
+# re-run for both read_items() and write_results(), doubling the number of
+# calls that could hit a transient 503.
+_WORKSHEET = None
+_LAYOUT_CHECKED = False
+
+
 def get_worksheet():
+    global _WORKSHEET
+    if _WORKSHEET is not None:
+        return _WORKSHEET
     client = _get_client()
-    sh = client.open_by_key(SHEET_ID)
-    return sh.worksheet(SHEET_TAB)
+    sh = _call("open spreadsheet", client.open_by_key, SHEET_ID)
+    _WORKSHEET = _call("open worksheet tab", sh.worksheet, SHEET_TAB)
+    return _WORKSHEET
 
 
 def normalize_layout(ws):
@@ -119,7 +194,13 @@ def normalize_layout(ws):
     frozen header row - repairing it first if it's in a broken or mixed
     state. Call this before read_items()/write_results() on every run.
     """
-    all_values = ws.get_all_values()
+    global _LAYOUT_CHECKED
+    if _LAYOUT_CHECKED:
+        # Already verified earlier in this run; re-reading the whole sheet a
+        # second time only adds another chance to hit a transient error.
+        return
+
+    all_values = _call("read sheet", ws.get_all_values)
 
     b_column = [row[1] if len(row) > 1 else "" for row in all_values[1:1 + len(CANONICAL_ITEMS)]]
     matches = sum(1 for i, item in enumerate(CANONICAL_ITEMS[:20]) if i < len(b_column) and b_column[i] == item)
@@ -127,8 +208,9 @@ def normalize_layout(ws):
     if matches >= MIN_HEALTHY_MATCHES:
         # Layout already looks right - just make sure header/freeze are set.
         if all_values and all_values[0] != HEADER:
-            ws.update("A1", [HEADER])
-        ws.freeze(rows=1)
+            _call("write header", ws.update, "A1", [HEADER])
+        _call("freeze header row", ws.freeze, rows=1)
+        _LAYOUT_CHECKED = True
         return
 
     print(
@@ -137,15 +219,16 @@ def normalize_layout(ws):
         flush=True,
     )
     rows = [HEADER] + [["", item] + [""] * (NUM_COLUMNS - 2) for item in CANONICAL_ITEMS]
-    ws.clear()
-    ws.update("A1", rows)
-    ws.freeze(rows=1)
+    _call("clear sheet", ws.clear)
+    _call("rebuild sheet", ws.update, "A1", rows)
+    _call("freeze header row", ws.freeze, rows=1)
+    _LAYOUT_CHECKED = True
 
 
 def read_items() -> list:
     ws = get_worksheet()
     normalize_layout(ws)
-    col_b = ws.col_values(2)
+    col_b = _call("read column B", ws.col_values, 2)
     return [v for v in col_b[1:] if v.strip()]
 
 
@@ -213,7 +296,7 @@ def write_results(rows: list):
     ws = get_worksheet()
     normalize_layout(ws)
 
-    existing_items = ws.col_values(2)[1:]
+    existing_items = _call("read column B", ws.col_values, 2)[1:]
     item_to_row = {name: idx + 2 for idx, name in enumerate(existing_items)}  # +2: header + 1-index
 
     now_uae = datetime.now(timezone.utc).astimezone(
@@ -265,7 +348,7 @@ def write_results(rows: list):
         last_col = _COLUMN_LETTERS[-1]
         updates.append({"range": f"C{row_num}:{last_col}{row_num}", "values": [values]})
 
-    if updates:
-        ws.batch_update(updates)
-    if formats:
-        ws.batch_format(formats)
+    for i, chunk in enumerate(_chunked(updates, BATCH_CHUNK_SIZE), start=1):
+        _call(f"write values (chunk {i})", ws.batch_update, chunk)
+    for i, chunk in enumerate(_chunked(formats, BATCH_CHUNK_SIZE), start=1):
+        _call(f"write formatting (chunk {i})", ws.batch_format, chunk)

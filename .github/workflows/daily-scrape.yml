@@ -2,8 +2,14 @@ name: Daily Instax Price Check
 
 on:
   schedule:
-    # 10:00 AM UAE time (UTC+4, no DST) = 06:00 UTC
-    - cron: "0 6 * * *"
+    # Target: 10:00 AM UAE/Dubai time (UTC+4, no DST) = 06:00 UTC.
+    # Deliberately NOT scheduled at the exact hour: GitHub's scheduler
+    # queues jobs most heavily at round hour marks (00, 06, 12, 18 UTC
+    # etc. are all popular choices), and during high load can delay a
+    # job by hours - which is what was actually happening here (observed
+    # runs landing 4.5-5 hours late on 0 6 * * *). A few minutes before
+    # the hour avoids that contention.
+    - cron: "50 5 * * *"
   workflow_dispatch: {}   # allows manual "Run workflow" from the Actions tab
 
 jobs:

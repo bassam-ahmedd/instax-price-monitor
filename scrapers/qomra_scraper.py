@@ -1,22 +1,32 @@
 """
 Qomra (qomra.pro) scraper.
 
-Qomra runs on Salla (a Saudi e-commerce platform). Product cards are Salla
-web components (<salla-product-card>) that only get populated with data
-client-side after JS runs - the plain HTML has no product data at all.
-After JS execution though, Salla itself injects a clean schema.org
-ItemList (id="salla-product-schema-script") for SEO, which is exactly
-what common/extract.py's JSON-LD parser already handles. So: ZenRows for
-JS rendering, then the same generic JSON-LD extraction used elsewhere.
+Qomra runs on Salla (a Saudi e-commerce platform). The search *listing*
+is built from <salla-product-card> web components with no server-rendered
+product data, which is why this originally went through ZenRows for JS
+rendering. That route turned out to be both slow (45-200s) and flaky -
+ZenRows intermittently answers 422 RESP001 ("Could not get content"),
+which silently produced an empty catalog and a whole column of
+"Fetch Error" in the sheet.
 
-Note: the category page originally suggested
-(qomra.pro/en/category/QQGwgR?filters[category_id]=335997161) is a broad
-"Instant Cameras" category dominated by Lomography (a different brand) -
-only 1 of 14 products there are Instax. Searching "instax" directly is far
-more relevant and was used instead; Qomra's real Instax catalog is small
-(~7 products) but genuine, confirmed across several query phrasings.
+Salla exposes the same data through the public storefront API its own
+frontend uses (api.salla.dev, keyed by the store identifier), which needs
+no JS rendering and answers in well under a second. The search endpoint
+returns name/price/url but not stock, so availability comes from each
+product page's server-rendered schema.org JSON-LD - also plain HTML, no
+JS. That's 8 fast requests instead of one 200s browser render.
+
+ZenRows is kept as a fallback for the case where the API shape changes or
+the runner's IP gets blocked outright.
+
+Note: Qomra's real Instax catalog is small (7 products) but genuine -
+the API and the old ZenRows route agree exactly on that set. The broad
+"Instant Cameras" category is mostly Lomography, a different brand, which
+is why this searches "instax" rather than scraping that category.
 """
 from urllib.parse import quote_plus
+
+import requests
 
 from common.zenrows_client import fetch_rendered_html
 from common.extract import extract_products_from_jsonld, normalize_availability, clean_price
@@ -24,12 +34,79 @@ from common.matcher import best_match
 
 SEARCH_URL = "https://qomra.pro/en/search?q={query}"
 
+# Salla storefront API - the same endpoint qomra.pro's own frontend calls.
+SALLA_SEARCH_API = "https://api.salla.dev/store/v1/products/search"
+SALLA_STORE_ID = "11866705"
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+)
+API_TIMEOUT = 30
+PRODUCT_PAGE_TIMEOUT = 25
+
+
+def _product_availability(url: str) -> str:
+    """Read stock status off a product page's server-rendered JSON-LD."""
+    try:
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=PRODUCT_PAGE_TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"[qomra] availability lookup failed for {url}: {exc}", flush=True)
+        return "Unknown"
+
+    for product in extract_products_from_jsonld(resp.text):
+        if product.get("availability"):
+            return normalize_availability(product["availability"])
+    return "Unknown"
+
+
+def _fetch_via_api() -> list:
+    """Primary route: Salla's public storefront search API."""
+    resp = requests.get(
+        SALLA_SEARCH_API,
+        params={"query": "instax", "per_page": 50},
+        headers={
+            "store-identifier": SALLA_STORE_ID,
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        timeout=API_TIMEOUT,
+    )
+    resp.raise_for_status()
+    items = resp.json().get("data", [])
+
+    catalog = []
+    seen_links = set()
+    for item in items:
+        name = item.get("name") or ""
+        link = item.get("url") or ""
+        if not name or not link or link in seen_links:
+            continue
+        if "instax" not in name.lower():
+            continue
+        seen_links.add(link)
+        catalog.append({
+            "title": name,
+            "price": clean_price(item.get("price")),
+            "availability": _product_availability(link),
+            "link": link,
+        })
+    return catalog
+
 
 def fetch_catalog() -> list:
     """
     Fetch Qomra's Instax search results. Returns a list of dicts:
     {title, price, availability, link}.
     """
+    try:
+        catalog = _fetch_via_api()
+        if catalog:
+            return catalog
+        print("[qomra] API returned no Instax products - falling back to ZenRows.", flush=True)
+    except (requests.RequestException, ValueError) as exc:
+        print(f"[qomra] API route failed ({exc}) - falling back to ZenRows.", flush=True)
+
     url = SEARCH_URL.format(query=quote_plus("instax"))
     # Salla's web-component hydration time is highly inconsistent - a
     # single attempt has been observed taking anywhere from ~45s to over

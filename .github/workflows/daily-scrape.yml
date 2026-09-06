@@ -31,4 +31,25 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
           N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
-        run: python main.py
+        run: |
+          # Second line of defence. sheets_writer.py already retries transient
+          # Sheets errors in-process; this catches anything that kills the
+          # script outright (a scraper blowing up, a runner network blip).
+          # The run is idempotent - every column is rewritten from scratch -
+          # so a full re-run is always safe.
+          attempts=2
+          for attempt in $(seq 1 $attempts); do
+            echo "::group::Attempt $attempt of $attempts"
+            if python main.py; then
+              echo "::endgroup::"
+              echo "Succeeded on attempt $attempt."
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "$attempt" -lt "$attempts" ]; then
+              echo "::warning::Attempt $attempt failed - retrying in 3 minutes."
+              sleep 180
+            fi
+          done
+          echo "::error::All $attempts attempts failed."
+          exit 1

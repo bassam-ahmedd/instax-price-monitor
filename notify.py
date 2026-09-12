@@ -26,7 +26,7 @@ def build_cheaper_items(results: list) -> list:
     competitor price - only when that price is lower than ours, and only
     when our own item is currently in stock (a price comparison isn't
     actionable for something we can't sell anyway):
-    {item, site, price, our_price, our_link, diff, link}
+    {item, our_sku, site, price, our_price, our_link, diff, link}
 
     If two or more competitors tie at that lowest price, they're merged
     into one row (site becomes e.g. "Extra, Jarir"). A competitor with a
@@ -66,6 +66,7 @@ def build_cheaper_items(results: list) -> list:
 
         items.append({
             "item": row["item"],
+            "our_sku": our.get("sku", ""),
             "site": ", ".join(c["site"] for c in tied),
             "price": f"{lowest_price:.2f}",
             "our_price": f"{our_price:.2f}",

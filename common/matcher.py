@@ -119,7 +119,7 @@ LINE_WORDS = {"mini", "wide", "square"}
 # definitely NOT a pattern is safer: anything left over after removing
 # this, GENERIC_WORDS, LINE_WORDS, colors, and digits is assumed to be a
 # real pattern name.
-GENERIC_FILLER_WORDS = {"for", "s", "x", "pics", "pcs", "x1", "frame", "packs", "photo", "piece", "pieces"}
+GENERIC_FILLER_WORDS = {"for", "s", "x", "pics", "pcs", "x1", "frame", "packs", "photo", "piece", "pieces", "retro", "style"}
 
 
 def _content_words(text: str) -> set:
@@ -288,8 +288,16 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
             cand_colors = _color_words(title)
             cand_tokens_for_color_check = _tokens(title)
             leftover = cand_tokens_for_color_check - GENERIC_WORDS - LINE_WORDS - GENERIC_FILLER_WORDS - _digit_runs(title)
-            if query_colors == {"white"} and not cand_colors and not leftover:
-                pass  # nothing left over after removing boilerplate - a genuinely plain/white default listing
+            if not cand_colors and not leftover:
+                # Nothing left over after removing boilerplate - a
+                # genuinely plain, undifferentiated listing (the retailer
+                # doesn't distinguish color for this specific model/SKU,
+                # e.g. a single-color-only camera, or film's implicit
+                # plain/white default). Any single requested color is
+                # acceptable here - a real pattern name or a second color
+                # word would have shown up in leftover/cand_colors and
+                # blocked this.
+                pass
             elif query_colors.isdisjoint(cand_colors):
                 continue
 

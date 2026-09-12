@@ -74,6 +74,19 @@ def fetch_catalog() -> list:
     A page that fails even after retries stops pagination but keeps
     whatever earlier pages already succeeded - a transient 500 on a later
     page shouldn't discard a perfectly good earlier page's worth of data.
+
+    Some products (e.g. "Instax Mini 12 Instant Film Camera") group every
+    color as a *variant* of one listing with a shared, color-neutral
+    title - the color only appears in each variant's own "title"/"option1"
+    field. Others (most SQ1/PAL listings) give each color its own separate
+    product with the color already baked into the title, where Shopify
+    uses the placeholder variant title "Default Title". Every variant is
+    expanded into its own catalog entry, with the variant's own title
+    appended only when it's real color info (not "Default Title") and not
+    already present in the base title - otherwise only the first color
+    variant's price/availability was ever captured and every other color
+    silently vanished (couldn't match on color at all, since the shared
+    title has no color word in it).
     """
     catalog = []
 
@@ -92,13 +105,24 @@ def fetch_catalog() -> list:
             if _is_bundle(title):
                 continue
 
-            variant = (p.get("variants") or [{}])[0]
-            catalog.append({
-                "title": title,
-                "price": str(variant.get("price", "")),
-                "availability": "In Stock" if variant.get("available") else "Out of Stock",
-                "link": "https://grandstores.sa/products/" + p.get("handle", ""),
-            })
+            base_url = "https://grandstores.sa/products/" + p.get("handle", "")
+
+            for variant in p.get("variants") or [{}]:
+                variant_title = (variant.get("title") or "").strip()
+                if variant_title and variant_title != "Default Title" and variant_title.lower() not in title.lower():
+                    full_title = f"{title} {variant_title}"
+                else:
+                    full_title = title
+
+                variant_id = variant.get("id")
+                link = f"{base_url}?variant={variant_id}" if variant_id else base_url
+
+                catalog.append({
+                    "title": full_title,
+                    "price": str(variant.get("price", "")),
+                    "availability": "In Stock" if variant.get("available") else "Out of Stock",
+                    "link": link,
+                })
 
         if len(products) < PAGE_LIMIT:
             break  # last page

@@ -53,15 +53,22 @@ def _normalize(text: str) -> str:
 
 def infer_category(text: str) -> str | None:
     """
-    Coarse product-type from a title/description: camera, film, or printer.
-    Used as a hard gate so a film pack never gets matched to a camera (or
-    vice versa) just because the fuzzy text score happens to be high.
+    Coarse product-type from a title/description: camera, film, printer,
+    or accessory. Used as a hard gate so a film pack never gets matched
+    to a camera (or vice versa) just because the fuzzy text score happens
+    to be high - and so an accessory (a "camera case", say) never matches
+    a camera/film/printer item, which matters because none of our sheet's
+    camera codes literally say "camera" (e.g. "Instax Mini12 White"), so
+    without this an accessory sharing the same model number and color
+    would otherwise sail through every other gate unopposed.
 
     Runs on the normalized/expanded text and uses word boundaries: a naive
     substring check would match "film" inside the brand name "Fujifilm"
     itself and mis-tag every product as film.
     """
     t = _normalize(text)
+    if re.search(r"\b(case|cover|sleeve|strap|pouch|bag)\b", t):
+        return "accessory"
     if re.search(r"\bcamera\b", t):
         return "camera"
     if re.search(r"\btp\s?link\b", t):
@@ -239,8 +246,11 @@ def best_match(query: str, candidates: list, key=lambda c: c, threshold: float =
         if not _is_fuji_branded(title):
             continue
 
+        cand_category = infer_category(title)
+        if cand_category == "accessory":
+            continue  # none of our sheet items are accessories - reject unconditionally
+
         if query_category:
-            cand_category = infer_category(title)
             if cand_category and cand_category != query_category:
                 continue
 

@@ -37,6 +37,13 @@ def _split_alnum(text: str) -> list:
 
 def _normalize(text: str) -> str:
     """Tokenize and expand abbreviated codes to full words."""
+    # A "+" attached directly to a word (e.g. "LiPlay+", Fuji's own name
+    # for the Plus model) would otherwise be silently stripped as
+    # punctuation, losing the word "plus" this needs to match on - a
+    # spaced "+" joining two separate products ("Camera + Film") is a
+    # bundle-join and never reaches here, since bundle listings are
+    # filtered out before matching runs (see grandstores_scraper.py).
+    text = re.sub(r"(?<=[a-zA-Z])\+", " plus", text)
     # "SQ" standing alone means "Square" (the product line, as our sheet
     # uses it in "INSTAX SQ LINK WHT"). "SQ" directly followed by a digit
     # (SQ1, SQ6, SQ40) is a specific model code, not our line-name

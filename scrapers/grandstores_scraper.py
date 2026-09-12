@@ -20,6 +20,7 @@ the standard single (10-sheet) or twin (20-sheet) pack our sheet expects
 "bulk" size that won't match single/twin queries.
 """
 import random
+import re
 import time
 
 import requests
@@ -44,12 +45,22 @@ REQUEST_TIMEOUT = 20
 # "+" is the strongest signal (every legitimate standalone title in this
 # catalog is plus-free; every bundle uses it to join camera+film,
 # printer+camera, etc.).
-BUNDLE_SIGNALS = ["+", "gift", "bundle", "joy pack", "happy pack", "craft box", "photo kit"]
+# Any of these appearing in a title means "this isn't a standalone
+# product our sheet has an equivalent for" - reject outright. A spaced
+# "+" (e.g. "Camera + Film") is the strongest signal - every legitimate
+# standalone title in this catalog either has no "+" or uses it attached
+# to a word as part of the product's own name (e.g. "LiPlay+", Fuji's
+# real "Plus" model - not a bundle join). An attached "+" is deliberately
+# NOT treated as a bundle signal for that reason.
+PLAIN_BUNDLE_SIGNALS = ["gift", "bundle", "joy pack", "happy pack", "craft box", "photo kit"]
+SPACED_PLUS_RE = re.compile(r"\s\+\s")
 
 
 def _is_bundle(title: str) -> bool:
     t = title.lower()
-    return any(signal in t for signal in BUNDLE_SIGNALS)
+    if any(signal in t for signal in PLAIN_BUNDLE_SIGNALS):
+        return True
+    return bool(SPACED_PLUS_RE.search(title))
 
 
 def _fetch_page(page: int):

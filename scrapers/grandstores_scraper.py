@@ -19,6 +19,8 @@ the standard single (10-sheet) or twin (20-sheet) pack our sheet expects
 - common/matcher.py's pack-size gate already treats these as a distinct
 "bulk" size that won't match single/twin queries.
 """
+import time
+
 import requests
 
 from common.matcher import best_match
@@ -26,6 +28,8 @@ from common.matcher import best_match
 PRODUCTS_URL = "https://grandstores.sa/products.json"
 PAGE_LIMIT = 250
 MAX_PAGES = 5
+PAGE_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 3
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 REQUEST_TIMEOUT = 20
@@ -43,21 +47,41 @@ def _is_bundle(title: str) -> bool:
     return any(signal in t for signal in BUNDLE_SIGNALS)
 
 
+def _fetch_page(page: int):
+    """GET one page of products.json, retrying transient server errors.
+    Returns the product list, or None if all retries failed."""
+    for attempt in range(1, PAGE_RETRIES + 1):
+        try:
+            resp = requests.get(
+                PRODUCTS_URL, params={"limit": PAGE_LIMIT, "page": page},
+                headers=HEADERS, timeout=REQUEST_TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.json().get("products", [])
+        except requests.RequestException as exc:
+            print(f"[grandstores] page {page} attempt {attempt}/{PAGE_RETRIES} failed: {exc}", flush=True)
+            if attempt < PAGE_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+    return None
+
+
 def fetch_catalog() -> list:
     """
     Fetch GrandStores' complete Instax catalog (paginating until a short
     page signals the end), excluding bundles. Returns a list of dicts:
     {title, price, availability, link}.
+
+    A page that fails even after retries stops pagination but keeps
+    whatever earlier pages already succeeded - a transient 500 on a later
+    page shouldn't discard a perfectly good earlier page's worth of data.
     """
     catalog = []
 
     for page in range(1, MAX_PAGES + 1):
-        resp = requests.get(
-            PRODUCTS_URL, params={"limit": PAGE_LIMIT, "page": page},
-            headers=HEADERS, timeout=REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        products = resp.json().get("products", [])
+        products = _fetch_page(page)
+        if products is None:
+            print(f"[grandstores] giving up on page {page} - keeping {len(catalog)} products found so far.", flush=True)
+            break
         if not products:
             break
 

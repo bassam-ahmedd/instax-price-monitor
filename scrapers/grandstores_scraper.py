@@ -19,6 +19,7 @@ the standard single (10-sheet) or twin (20-sheet) pack our sheet expects
 - common/matcher.py's pack-size gate already treats these as a distinct
 "bulk" size that won't match single/twin queries.
 """
+import random
 import time
 
 import requests
@@ -31,7 +32,11 @@ MAX_PAGES = 5
 PAGE_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 3
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
 REQUEST_TIMEOUT = 20
 
 # Any of these appearing in a title means "this isn't a standalone
@@ -53,7 +58,8 @@ def _fetch_page(page: int):
     for attempt in range(1, PAGE_RETRIES + 1):
         try:
             resp = requests.get(
-                PRODUCTS_URL, params={"limit": PAGE_LIMIT, "page": page},
+                PRODUCTS_URL,
+                params={"limit": PAGE_LIMIT, "page": page, "_cb": random.randint(1, 10_000_000)},
                 headers=HEADERS, timeout=REQUEST_TIMEOUT,
             )
             resp.raise_for_status()
@@ -89,6 +95,7 @@ def fetch_catalog() -> list:
     title has no color word in it).
     """
     catalog = []
+    total_raw_products = 0
 
     for page in range(1, MAX_PAGES + 1):
         products = _fetch_page(page)
@@ -97,6 +104,9 @@ def fetch_catalog() -> list:
             break
         if not products:
             break
+
+        total_raw_products += len(products)
+        print(f"[grandstores] page {page}: {len(products)} raw products.", flush=True)
 
         for p in products:
             title = p.get("title", "")
@@ -107,7 +117,15 @@ def fetch_catalog() -> list:
 
             base_url = "https://grandstores.sa/products/" + p.get("handle", "")
 
-            for variant in p.get("variants") or [{}]:
+            variants = p.get("variants") or [{}]
+            if p.get("handle") == "instax-mini-12-instant-film-camera":
+                # Diagnostic: this exact product's variant count differed
+                # between a local test (5 variants, correct) and the last
+                # two real GitHub Actions runs (behaved like 1 variant) -
+                # confirming whether that's still happening here.
+                print(f"[grandstores] DIAGNOSTIC instax-mini-12-instant-film-camera: {len(variants)} variant(s) -> {[v.get('title') for v in variants]}", flush=True)
+
+            for variant in variants:
                 variant_title = (variant.get("title") or "").strip()
                 if variant_title and variant_title != "Default Title" and variant_title.lower() not in title.lower():
                     full_title = f"{title} {variant_title}"
@@ -127,6 +145,7 @@ def fetch_catalog() -> list:
         if len(products) < PAGE_LIMIT:
             break  # last page
 
+    print(f"[grandstores] {total_raw_products} raw products scanned, {len(catalog)} Instax catalog entries built.", flush=True)
     return catalog
 
 

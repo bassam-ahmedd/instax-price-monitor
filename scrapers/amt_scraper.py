@@ -7,6 +7,7 @@ directly), AMT's Magento storefront is behind Cloudflare bot protection,
 so this goes through ZenRows with JS rendering. Prefers JSON-LD structured
 data when present, falling back to Magento's typical product-grid markup.
 """
+import re
 from urllib.parse import quote_plus
 
 from bs4 import BeautifulSoup
@@ -38,7 +39,19 @@ def _extract_from_html(html: str) -> list:
         out_of_stock = bool(item.select_one(".stock.unavailable, .out-of-stock"))
         availability = "OutOfStock" if out_of_stock else "InStock"
 
-        products.append({"name": name, "price": price, "availability": availability, "url": link})
+        # AMT's own SKU (shown under the product title on their site) is
+        # embedded in the search-tile's GA4 dataLayer push as "item_id" -
+        # already present here, no separate product-page fetch needed.
+        sku = None
+        onclick = link_tag.get("onclick", "")
+        m = re.search(r"'item_id'\s*:\s*'([^']*)'", onclick)
+        if m:
+            sku = m.group(1)
+
+        products.append({
+            "name": name, "price": price, "availability": availability,
+            "url": link, "sku": sku,
+        })
 
     return products
 
@@ -46,7 +59,7 @@ def _extract_from_html(html: str) -> list:
 def fetch_catalog() -> list:
     """
     Fetch AMT's Instax search results, paginating a few pages if present.
-    Returns a list of dicts: {title, price, availability, link}.
+    Returns a list of dicts: {title, price, availability, link, sku}.
     """
     catalog = []
     seen_links = set()
@@ -72,6 +85,7 @@ def fetch_catalog() -> list:
                 "price": clean_price(p.get("price")),
                 "availability": normalize_availability(p.get("availability")),
                 "link": link,
+                "sku": p.get("sku") or "",
             })
             new_count += 1
 
@@ -83,8 +97,8 @@ def fetch_catalog() -> list:
 
 def match_item(item_name: str, catalog: list) -> dict:
     """Match one sheet item against a pre-fetched catalog. Returns
-    {price, availability, link}."""
-    result = {"price": "", "availability": "Not Found", "link": ""}
+    {price, availability, link, sku}."""
+    result = {"price": "", "availability": "Not Found", "link": "", "sku": ""}
 
     if not catalog:
         result["availability"] = "Fetch Error"
@@ -97,4 +111,5 @@ def match_item(item_name: str, catalog: list) -> dict:
     result["price"] = match["price"]
     result["availability"] = match["availability"]
     result["link"] = match["link"]
+    result["sku"] = match.get("sku", "")
     return result

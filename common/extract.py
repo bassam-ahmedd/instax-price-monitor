@@ -24,7 +24,7 @@ def _walk_jsonld(node):
 
 def extract_products_from_jsonld(html: str):
     """
-    Returns a list of dicts: {name, price, currency, availability, url}
+    Returns a list of dicts: {name, price, currency, availability, url, sku}
     pulled from any schema.org Product / ItemList JSON-LD on the page.
     """
     soup = BeautifulSoup(html, "html.parser")
@@ -53,6 +53,7 @@ def extract_products_from_jsonld(html: str):
                     "currency": offers.get("priceCurrency"),
                     "availability": offers.get("availability"),
                     "url": node.get("url") or offers.get("url"),
+                    "sku": node.get("sku"),
                 })
 
             if "ItemList" in types:
@@ -68,6 +69,7 @@ def extract_products_from_jsonld(html: str):
                             "currency": offers.get("priceCurrency"),
                             "availability": offers.get("availability"),
                             "url": item.get("url"),
+                            "sku": item.get("sku"),
                         })
 
     return products

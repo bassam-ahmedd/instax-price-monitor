@@ -1,18 +1,18 @@
 """
 Daily price-check run.
 
-Fetches AMT's (ours), Extra's, Jarir's, and Qomra's complete Fuji Instax
-catalogs once each, then matches every item in column B of the Google
-Sheet against those fixed catalogs locally - rather than issuing a fresh
-search per item per site, which risks missing a product that exists but
-doesn't surface well under a guessed query phrasing.
+Fetches AMT's (ours), Extra's, Jarir's, Qomra's, and GrandStores' complete
+Fuji Instax catalogs once each, then matches every item in column B of
+the Google Sheet against those fixed catalogs locally - rather than
+issuing a fresh search per item per site, which risks missing a product
+that exists but doesn't surface well under a guessed query phrasing.
 sheets_writer.write_results() also computes whether each competitor is
 priced higher/lower/same as us, and highlights cells accordingly. After
 writing, notify.send_alert() posts any cheaper-than-us items to the n8n
 "Instax Daily Price Alert" workflow, which emails a summary if any exist.
 
 Env vars required (see README):
-    ZENROWS_API_KEY               (AMT and Qomra only - Extra/Jarir don't need it)
+    ZENROWS_API_KEY               (AMT and Qomra only - Extra/Jarir/GrandStores don't need it)
     GOOGLE_SERVICE_ACCOUNT_JSON   (or GOOGLE_SERVICE_ACCOUNT_FILE for local runs)
     SHEET_ID                      (defaults to the Instax sheet)
     N8N_WEBHOOK_URL                (optional - price alert is skipped if unset)
@@ -20,7 +20,7 @@ Env vars required (see README):
 import sys
 
 import notify
-from scrapers import amt_scraper, extra_scraper, jarir_scraper, qomra_scraper
+from scrapers import amt_scraper, extra_scraper, grandstores_scraper, jarir_scraper, qomra_scraper
 from sheets_writer import COMPETITORS, read_items, write_results
 
 # Maps sheets_writer.COMPETITORS keys to their scraper module.
@@ -28,6 +28,7 @@ COMPETITOR_SCRAPERS = {
     "extra": extra_scraper,
     "jarir": jarir_scraper,
     "qomra": qomra_scraper,
+    "grandstores": grandstores_scraper,
 }
 
 
@@ -62,7 +63,7 @@ def run():
             our_result = amt_scraper.match_item(item, amt_catalog)
         except Exception as exc:
             print(f"  AMT match error for '{item}': {exc}", flush=True)
-            our_result = {"price": "", "availability": "Error", "link": ""}
+            our_result = {"price": "", "availability": "Error", "link": "", "sku": ""}
 
         row = {"item": item, "our": our_result}
         summary = f"Us: {our_result['availability']} {our_result['price']}"

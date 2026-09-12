@@ -149,13 +149,16 @@ def _digit_runs(text: str) -> set:
 
 
 def _pack_size(text: str) -> str | None:
-    """'single' or 'twin' if determinable, else None. 'single'/'twin' are
-    in STOPWORDS (dropped from general matching as noise words for search
-    queries), which meant pack size was never actually checked - a
-    'Single Film' query could match a 'Twin Pack' listing or vice versa.
-    Retailers don't always say the word outright ('2 Packs' means twin;
-    a bare '10PCS' with no other signal means the standard single pack),
-    so this checks a few concrete patterns rather than just the words."""
+    """'single', 'twin', or 'bulk' if determinable, else None. 'single'/
+    'twin' are in STOPWORDS (dropped from general matching as noise words
+    for search queries), which meant pack size was never actually checked
+    - a 'Single Film' query could match a 'Twin Pack' listing or vice
+    versa. Retailers don't always say the word outright ('2 Packs' means
+    twin; a bare '10PCS' with no other signal means the standard single
+    pack), so this checks a few concrete patterns rather than just the
+    words. 'bulk' covers large multi-pack sizes (50/100/120 sheets, 12pcs)
+    that some retailers sell instead of the standard single/twin pack -
+    a fundamentally different SKU, not just an unlabeled single/twin."""
     t = _normalize(text)
     if re.search(r"\btwin\b", t) or re.search(r"\b2\s+packs?\b", t):
         return "twin"
@@ -166,6 +169,8 @@ def _pack_size(text: str) -> str | None:
         or re.search(r"\b10\s*x\s*1\b", t)
     ):
         return "single"
+    if re.search(r"\b(?:50|100|120)\s+(?:\w+\s+)?sheets?\b", t) or re.search(r"\b12\s*pcs?\b", t):
+        return "bulk"
     return None
 
 

@@ -32,7 +32,6 @@ GOOGLE_SERVICE_ACCOUNT_FILE for local runs.
 import json
 import os
 import random
-import string
 import time
 from datetime import datetime, timezone
 
@@ -52,14 +51,16 @@ SCOPES = [
 # One entry per competitor, in the order their 4-column blocks appear
 # after the "Our" block (C-E). Each key here must match a key in the
 # results dict passed to write_results() (see main.py).
-COMPETITORS = ["extra", "jarir", "qomra"]
-COMPETITOR_LABELS = {"extra": "Extra", "jarir": "Jarir", "qomra": "Qomra"}
+COMPETITORS = ["extra", "jarir", "qomra", "grandstores"]
+COMPETITOR_LABELS = {"extra": "Extra", "jarir": "Jarir", "qomra": "Qomra", "grandstores": "GrandStores"}
 
 HEADER = [
     "Last Checked",
     "Item Description",
-    "Our Price (SAR)", "Our Availability", "Our Link",
+    "Our Price (SAR)", "Our Availability", "Our Link", "Our SKU",
 ]
+OUR_BLOCK_START = 2  # column C (0-indexed from A) - where the "Our" block begins
+OUR_BLOCK_SIZE = 4   # Price, Availability, Link, SKU
 for _key in COMPETITORS:
     _label = COMPETITOR_LABELS[_key]
     HEADER += [f"{_label} Price (SAR)", f"{_label} Availability", f"{_label} Link", f"{_label} vs Us"]
@@ -68,7 +69,21 @@ NUM_COLUMNS = len(HEADER)
 
 # A-Z column letters for the columns we actually use (fine as long as
 # NUM_COLUMNS stays under 26 - we're at 17).
-_COLUMN_LETTERS = list(string.ascii_uppercase[:NUM_COLUMNS])
+def _column_letter(index: int) -> str:
+    """0-indexed column number -> spreadsheet column letter(s) (0->A,
+    25->Z, 26->AA, ...). NUM_COLUMNS reached exactly 26 with this addition
+    - the old list(string.ascii_uppercase[:NUM_COLUMNS]) approach would
+    silently break (wrong letter or IndexError) on the very next column
+    added, so this handles multi-letter columns properly instead."""
+    letters = ""
+    index += 1
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+_COLUMN_LETTERS = [_column_letter(i) for i in range(NUM_COLUMNS)]
 
 # The 54 items from the original sourcing list, in their original order.
 # Used only as a rebuild source when the sheet's layout looks broken -
@@ -286,10 +301,11 @@ def write_results(rows: list):
     rows: list of dicts, each:
     {
         "item": str,
-        "our": {"price", "availability", "link"},
+        "our": {"price", "availability", "link", "sku"},
         "extra": {"price", "availability", "link"},
         "jarir": {"price", "availability", "link"},
         "qomra": {"price", "availability", "link"},
+        "grandstores": {"price", "availability", "link"},
     }
     Writes in the same row order as the item appears in column B.
     """
@@ -315,15 +331,20 @@ def write_results(rows: list):
         our_price = our.get("price", "")
         our_avail = our.get("availability", "")
 
-        values = [our_price, our_avail, our.get("link", "")]
+        values = [our_price, our_avail, our.get("link", ""), our.get("sku", "")]
         for key in COMPETITORS:
             comp = row[key]
             vs_us = _compare_to_us(comp.get("price", ""), our_price)
             values += [comp.get("price", ""), comp.get("availability", ""), comp.get("link", ""), vs_us]
 
             # Column letters for this competitor's block: price is the
-            # first column, availability the second.
-            block_start = 3 + COMPETITORS.index(key) * 4  # 0-indexed offset from column A
+            # first column, availability the second. Was hardcoded as
+            # "3 + index*4", which only happened to work back when the
+            # Our block was 3 columns wide starting at index 2 (should
+            # have been 2+3=5, not 3) - silently misplacing every
+            # highlight by 2 columns. Derived properly now so it can't
+            # drift out of sync with the Our block's actual size again.
+            block_start = OUR_BLOCK_START + OUR_BLOCK_SIZE + COMPETITORS.index(key) * 4
             price_col = _COLUMN_LETTERS[block_start]
             avail_col = _COLUMN_LETTERS[block_start + 1]
 

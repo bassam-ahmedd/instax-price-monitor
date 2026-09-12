@@ -56,11 +56,11 @@ COMPETITOR_LABELS = {"extra": "Extra", "jarir": "Jarir", "qomra": "Qomra", "gran
 
 HEADER = [
     "Last Checked",
-    "Item Description",
-    "Our Price (SAR)", "Our Availability", "Our Link", "Our SKU",
+    "Item Description", "Our SKU",
+    "Our Price (SAR)", "Our Availability", "Our Link",
 ]
 OUR_BLOCK_START = 2  # column C (0-indexed from A) - where the "Our" block begins
-OUR_BLOCK_SIZE = 4   # Price, Availability, Link, SKU
+OUR_BLOCK_SIZE = 4   # SKU, Price, Availability, Link
 for _key in COMPETITORS:
     _label = COMPETITOR_LABELS[_key]
     HEADER += [f"{_label} Price (SAR)", f"{_label} Availability", f"{_label} Link", f"{_label} vs Us"]
@@ -331,7 +331,7 @@ def write_results(rows: list):
         our_price = our.get("price", "")
         our_avail = our.get("availability", "")
 
-        values = [our_price, our_avail, our.get("link", ""), our.get("sku", "")]
+        values = [our.get("sku", ""), our_price, our_avail, our.get("link", "")]
         for key in COMPETITORS:
             comp = row[key]
             vs_us = _compare_to_us(comp.get("price", ""), our_price)

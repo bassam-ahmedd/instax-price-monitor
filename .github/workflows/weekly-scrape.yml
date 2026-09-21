@@ -7,7 +7,7 @@ on:
     # most heavily at round hour marks, and we've empirically confirmed
     # this account's runs land 4.5-5 hours late when scheduled at
     # exactly 0 6 * * * - a few minutes before the hour avoids that.
-    - cron: "50 5 * * 2"
+    - cron: "15 6 * * 2"
   workflow_dispatch: {}   # allows manual "Run workflow" from the Actions tab
 
 jobs:

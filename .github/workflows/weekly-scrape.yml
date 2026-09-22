@@ -2,12 +2,19 @@ name: Weekly Instax Price Check
 
 on:
   schedule:
-    # Target: 10:00 AM UAE/Dubai time (UTC+4, no DST) = 06:00 UTC, Tuesdays only.
-    # Deliberately NOT at the exact hour: GitHub's scheduler queues jobs
-    # most heavily at round hour marks, and we've empirically confirmed
-    # this account's runs land 4.5-5 hours late when scheduled at
-    # exactly 0 6 * * * - a few minutes before the hour avoids that.
+    # Target: 10:15 AM UAE/Dubai time (UTC+4, no DST) = 06:15 UTC, Tuesdays.
+    # Three staggered attempts instead of one: daily used to "just work"
+    # not because GitHub's scheduler is reliable, but because 7 chances a
+    # week smoothed over the occasional dropped/delayed fire - weekly gets
+    # only one shot, so a single miss looks totally broken with no
+    # near-term recovery. These three are 20-25 min apart, off the round
+    # hour (contention risk) and spread across enough time to catch a fire
+    # GitHub delays or drops. The guard step below skips real work on
+    # whichever of these actually run once one has already succeeded that
+    # day, so this can't cause a duplicate scrape or duplicate email.
     - cron: "15 6 * * 2"
+    - cron: "35 6 * * 2"
+    - cron: "0 7 * * 2"
   workflow_dispatch: {}   # allows manual "Run workflow" from the Actions tab
 
 jobs:
@@ -21,15 +28,42 @@ jobs:
       - name: Check out repo
         uses: actions/checkout@v4
 
+      - name: Skip if a run already succeeded today
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Only matters for the redundant schedule fires above - a manual
+          # "Run workflow" click always proceeds regardless.
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          today=$(date -u +%Y-%m-%d)
+          already_ran=$(curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/weekly-scrape.yml/runs?status=success&event=schedule&per_page=10" \
+            | jq --arg today "$today" '[.workflow_runs[] | select(.created_at | startswith($today))] | length')
+          if [ "$already_ran" -gt 0 ]; then
+            echo "A scheduled run already succeeded today ($today) - skipping this redundant fire."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
         run: pip install -r requirements.txt
 
       - name: Run price check
+        if: steps.guard.outputs.skip != 'true'
         env:
           ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
